@@ -13,6 +13,7 @@ export default function VoiceInterviewEvaluationPage() {
   const [evaluateStatus, setEvaluateStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollAttemptsRef = useRef(0);
 
   useEffect(() => {
     loadEvaluation();
@@ -20,6 +21,7 @@ export default function VoiceInterviewEvaluationPage() {
       if (pollingRef.current) {
         clearTimeout(pollingRef.current);
       }
+      pollAttemptsRef.current = 0;
     };
   }, [sessionId]);
 
@@ -28,6 +30,7 @@ export default function VoiceInterviewEvaluationPage() {
 
     setLoading(true);
     setError(null);
+    pollAttemptsRef.current = 0;
 
     try {
       const status = await voiceInterviewApi.getEvaluation(parseInt(sessionId));
@@ -49,9 +52,11 @@ export default function VoiceInterviewEvaluationPage() {
     setEvaluateStatus(status);
 
     if (status === 'COMPLETED' && response.evaluation) {
+      pollAttemptsRef.current = 0;
       setEvaluation(response.evaluation);
       setLoading(false);
     } else if (status === 'FAILED') {
+      pollAttemptsRef.current = 0;
       setError(response.evaluateError || '评估生成失败');
       setLoading(false);
     } else {
@@ -68,14 +73,20 @@ export default function VoiceInterviewEvaluationPage() {
       if (!sessionId) return;
 
       try {
-        const response = await voiceInterviewApi.getEvaluation(parseInt(sessionId));
+        pollAttemptsRef.current += 1;
+        const shouldRequeue = pollAttemptsRef.current % 5 === 0;
+        const response = shouldRequeue
+          ? await voiceInterviewApi.generateEvaluation(parseInt(sessionId))
+          : await voiceInterviewApi.getEvaluation(parseInt(sessionId));
         const status = response.evaluateStatus;
         setEvaluateStatus(status);
 
         if (status === 'COMPLETED' && response.evaluation) {
+          pollAttemptsRef.current = 0;
           setEvaluation(response.evaluation);
           setLoading(false);
         } else if (status === 'FAILED') {
+          pollAttemptsRef.current = 0;
           setError(response.evaluateError || '评估生成失败');
           setLoading(false);
         } else {
@@ -93,6 +104,7 @@ export default function VoiceInterviewEvaluationPage() {
     setLoading(true);
     setError(null);
     setEvaluateStatus(null);
+    pollAttemptsRef.current = 0;
 
     try {
       const status = await voiceInterviewApi.generateEvaluation(parseInt(sessionId));

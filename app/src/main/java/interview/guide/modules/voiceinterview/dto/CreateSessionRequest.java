@@ -29,4 +29,7 @@ public class CreateSessionRequest {
 
     @Builder.Default
     private String llmProvider = "dashscope";
+
+    @Builder.Default
+    private Boolean liveEvaluationEnabled = false;
 }

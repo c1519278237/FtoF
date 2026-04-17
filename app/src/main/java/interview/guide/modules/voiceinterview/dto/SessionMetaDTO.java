@@ -25,4 +25,5 @@ public class SessionMetaDTO {
     private Long messageCount;
     private String evaluateStatus;
     private String evaluateError;
+    private Integer overallScore;
 }

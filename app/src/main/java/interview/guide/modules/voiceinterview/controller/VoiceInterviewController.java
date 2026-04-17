@@ -8,11 +8,12 @@ import interview.guide.modules.voiceinterview.dto.CreateSessionRequest;
 import interview.guide.modules.voiceinterview.dto.SessionMetaDTO;
 import interview.guide.modules.voiceinterview.dto.SessionResponseDTO;
 import interview.guide.modules.voiceinterview.dto.VoiceEvaluationDetailDTO;
+import interview.guide.modules.voiceinterview.dto.VoiceInterviewLiveEvaluationDTO;
 import interview.guide.modules.voiceinterview.dto.VoiceEvaluationStatusDTO;
-import interview.guide.modules.voiceinterview.listener.VoiceEvaluateStreamProducer;
 import interview.guide.modules.voiceinterview.dto.VoiceInterviewMessageDTO;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewEvaluationService;
+import interview.guide.modules.voiceinterview.service.VoiceInterviewLiveEvaluationService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -49,7 +50,7 @@ public class VoiceInterviewController {
 
     private final VoiceInterviewService voiceInterviewService;
     private final VoiceInterviewEvaluationService evaluationService;
-    private final VoiceEvaluateStreamProducer voiceEvaluateStreamProducer;
+    private final VoiceInterviewLiveEvaluationService liveEvaluationService;
 
     /**
      * Create a new voice interview session
@@ -82,7 +83,7 @@ public class VoiceInterviewController {
     /**
      * End interview session
      * <p>
-     * This also triggers async evaluation via Redis Stream.
+     * This also triggers async evaluation generation.
      * </p>
      */
     @PostMapping("/sessions/{sessionId}/end")
@@ -170,6 +171,12 @@ public class VoiceInterviewController {
         return Result.success(messages);
     }
 
+    @GetMapping("/sessions/{sessionId}/live-evaluation")
+    public Result<VoiceInterviewLiveEvaluationDTO> getLiveEvaluation(@PathVariable Long sessionId) {
+        log.info("Getting live evaluation snapshot for session: {}", sessionId);
+        return Result.success(liveEvaluationService.getLiveEvaluation(sessionId));
+    }
+
     /**
      * Get evaluation status and result for a session
      * <p>
@@ -193,8 +200,15 @@ public class VoiceInterviewController {
                 .evaluateError(session.getEvaluateError());
 
         if (status == AsyncTaskStatus.COMPLETED) {
-            VoiceEvaluationDetailDTO evaluation = evaluationService.getEvaluation(sessionId);
-            builder.evaluation(evaluation);
+            try {
+                VoiceEvaluationDetailDTO evaluation = evaluationService.getEvaluation(sessionId);
+                builder.evaluation(evaluation);
+            } catch (BusinessException e) {
+                log.warn("Completed status without evaluation payload, re-queueing: sessionId={}", sessionId);
+                voiceInterviewService.triggerEvaluation(sessionId);
+                builder.evaluateStatus(AsyncTaskStatus.PENDING.name());
+                builder.evaluateError(null);
+            }
         }
 
         return Result.success(builder.build());
@@ -203,7 +217,7 @@ public class VoiceInterviewController {
     /**
      * Trigger async evaluation for a session
      * <p>
-     * Enqueues evaluation task to Redis Stream and returns immediately.
+     * Enqueues evaluation task locally and returns immediately.
      * Frontend should then poll GET /evaluation to track progress.
      * If evaluation is already in progress or completed, returns current status.
      * </p>
@@ -217,28 +231,27 @@ public class VoiceInterviewController {
             throw new BusinessException(ErrorCode.VOICE_SESSION_NOT_FOUND, "会话不存在: " + sessionId);
         }
 
-        // If already completed, return cached result
         if (session.getEvaluateStatus() == AsyncTaskStatus.COMPLETED) {
-            VoiceEvaluationDetailDTO evaluation = evaluationService.getEvaluation(sessionId);
-            return Result.success(VoiceEvaluationStatusDTO.builder()
-                    .evaluateStatus(AsyncTaskStatus.COMPLETED.name())
-                    .evaluation(evaluation)
-                    .build());
+            try {
+                VoiceEvaluationDetailDTO evaluation = evaluationService.getEvaluation(sessionId);
+                return Result.success(VoiceEvaluationStatusDTO.builder()
+                        .evaluateStatus(AsyncTaskStatus.COMPLETED.name())
+                        .evaluation(evaluation)
+                        .build());
+            } catch (BusinessException e) {
+                log.warn("Completed status without evaluation payload, regenerating: sessionId={}", sessionId);
+            }
         }
 
-        // If already in progress, return current status
-        if (session.getEvaluateStatus() == AsyncTaskStatus.PENDING
-                || session.getEvaluateStatus() == AsyncTaskStatus.PROCESSING) {
-            return Result.success(VoiceEvaluationStatusDTO.builder()
-                    .evaluateStatus(session.getEvaluateStatus().name())
-                    .build());
-        }
-
-        // Trigger new async evaluation via service
         voiceInterviewService.triggerEvaluation(sessionId);
+        VoiceInterviewSessionEntity refreshedSession = voiceInterviewService.getSession(sessionId);
 
         return Result.success(VoiceEvaluationStatusDTO.builder()
-                .evaluateStatus(AsyncTaskStatus.PENDING.name())
+                .evaluateStatus(
+                    refreshedSession != null && refreshedSession.getEvaluateStatus() == AsyncTaskStatus.PROCESSING
+                        ? AsyncTaskStatus.PROCESSING.name()
+                        : AsyncTaskStatus.PENDING.name()
+                )
                 .build());
     }
 }

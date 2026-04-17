@@ -14,6 +14,7 @@ export interface CreateSessionRequest {
   hrEnabled?: boolean;
   plannedDuration?: number;
   llmProvider?: string;
+  liveEvaluationEnabled?: boolean;
 }
 
 export interface SessionResponse {
@@ -58,6 +59,46 @@ export interface VoiceEvaluationDetail {
   answers: VoiceAnswerDetail[];
 }
 
+export interface LiveEvaluatorScore {
+  evaluatorId: string;
+  evaluatorName: string;
+  role: string;
+  providerId: string;
+  score: number | null;
+  confidence: number | null;
+  highlight: string;
+  concern: string;
+  evidence: string[];
+}
+
+export interface LiveDimensionScore {
+  key: string;
+  label: string;
+  score: number;
+  rationale: string;
+}
+
+export interface CandidateProfile {
+  estimatedLevel: string;
+  communicationStyle: string;
+  currentState: string;
+  strengths: string[];
+  risks: string[];
+  coachingFocus: string[];
+}
+
+export interface LiveEvaluationSnapshot {
+  sessionId: number;
+  turnCount: number;
+  overallScore: number;
+  confidence: number;
+  summary: string;
+  evaluators: LiveEvaluatorScore[];
+  dimensions: LiveDimensionScore[];
+  candidateProfile: CandidateProfile;
+  updatedAt: string;
+}
+
 /**
  * Evaluation status response from GET/POST evaluation endpoints
  */
@@ -81,6 +122,7 @@ export interface SessionMeta {
   messageCount: number;
   evaluateStatus?: string;
   evaluateError?: string;
+  overallScore?: number | null;
 }
 
 // WebSocket 消息类型
@@ -114,12 +156,18 @@ export interface WebSocketAudioChunkMessage {
   isLast: boolean;
 }
 
+export interface WebSocketLiveEvaluationMessage {
+  type: 'realtime_evaluation';
+  data: LiveEvaluationSnapshot;
+}
+
 export type WebSocketMessage =
   | WebSocketAudioMessage
   | WebSocketSubtitleMessage
   | WebSocketAudioResponseMessage
   | WebSocketTextMessage
-  | WebSocketAudioChunkMessage;
+  | WebSocketAudioChunkMessage
+  | WebSocketLiveEvaluationMessage;
 
 // WebSocket 事件处理器
 export interface WebSocketEventHandlers {
@@ -127,6 +175,7 @@ export interface WebSocketEventHandlers {
   onSubtitle?: (text: string, isFinal: boolean) => void;
   onAudioResponse?: (audioData: string, text: string) => void;
   onAudioChunk?: (data: string, index: number, isLast: boolean) => void;
+  onRealtimeEvaluation?: (snapshot: LiveEvaluationSnapshot) => void;
   onOpen?: () => void;
   onClose?: (event: CloseEvent) => void;
   onError?: (error: Event) => void;
@@ -171,6 +220,12 @@ export const voiceInterviewApi = {
   async getEvaluation(sessionId: number): Promise<EvaluationStatusResponse> {
     return request.get<EvaluationStatusResponse>(
       `/api/voice-interview/sessions/${sessionId}/evaluation`
+    );
+  },
+
+  async getLiveEvaluation(sessionId: number): Promise<LiveEvaluationSnapshot | null> {
+    return request.get<LiveEvaluationSnapshot | null>(
+      `/api/voice-interview/sessions/${sessionId}/live-evaluation`
     );
   },
 
@@ -277,6 +332,12 @@ export class VoiceInterviewWebSocket {
               if ('index' in message) {
                 const chunkMsg = message as WebSocketAudioChunkMessage;
                 this.handlers.onAudioChunk?.(chunkMsg.data, chunkMsg.index, chunkMsg.isLast);
+              }
+              break;
+            case 'realtime_evaluation':
+              if ('data' in message) {
+                const evaluationMsg = message as WebSocketLiveEvaluationMessage;
+                this.handlers.onRealtimeEvaluation?.(evaluationMsg.data);
               }
               break;
             case 'text':

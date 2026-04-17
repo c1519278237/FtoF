@@ -62,6 +62,10 @@ public class VoiceInterviewSessionEntity {
     @Builder.Default
     private String llmProvider = "dashscope";
 
+    @Column(name = "live_evaluation_enabled")
+    @Builder.Default
+    private Boolean liveEvaluationEnabled = false;
+
     @Column(name = "current_phase")
     @Enumerated(EnumType.STRING)
     private InterviewPhase currentPhase;

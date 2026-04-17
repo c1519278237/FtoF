@@ -5,12 +5,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AudioRecorder from '../components/AudioRecorder';
 import InterviewPageHeader from '../components/InterviewPageHeader';
 import RealtimeSubtitle from '../components/RealtimeSubtitle';
+import VideoInterviewLiveScorePanel from '../components/VideoInterviewLiveScorePanel';
 import { skillApi, type SkillDTO } from '../api/skill';
 import { getTemplateName } from '../utils/voiceInterview';
 import {
   voiceInterviewApi,
   connectWebSocket,
   VoiceInterviewWebSocket,
+  type LiveEvaluationSnapshot,
 } from '../api/voiceInterview';
 
 interface VideoInterviewEntryState {
@@ -46,6 +48,9 @@ export default function VideoInterviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [liveEvaluation, setLiveEvaluation] = useState<LiveEvaluationSnapshot | null>(null);
+  const [liveEvaluationLoading, setLiveEvaluationLoading] = useState(false);
+  const [liveEvaluationRefreshing, setLiveEvaluationRefreshing] = useState(false);
 
   const [skills, setSkills] = useState<SkillDTO[]>([]);
 
@@ -68,6 +73,9 @@ export default function VideoInterviewPage() {
   const chunkPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const drainCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const aiTextRef = useRef('');
+  const liveEvaluationRequestSeqRef = useRef(0);
+  const pendingEvaluationRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveEvaluationAwaitingTurnRef = useRef(false);
 
   useEffect(() => {
     aiTextRef.current = aiText;
@@ -82,6 +90,13 @@ export default function VideoInterviewPage() {
     if (pendingAiTextCommitRef.current) {
       clearTimeout(pendingAiTextCommitRef.current);
       pendingAiTextCommitRef.current = null;
+    }
+  }, []);
+
+  const clearPendingEvaluationRefresh = useCallback(() => {
+    if (pendingEvaluationRefreshRef.current) {
+      clearTimeout(pendingEvaluationRefreshRef.current);
+      pendingEvaluationRefreshRef.current = null;
     }
   }, []);
 
@@ -102,6 +117,40 @@ export default function VideoInterviewPage() {
     });
   }, []);
 
+  const fetchLiveEvaluation = useCallback(async (targetSessionId: number, mode: 'initial' | 'refresh' = 'refresh') => {
+    const requestSeq = ++liveEvaluationRequestSeqRef.current;
+    if (mode === 'initial') {
+      setLiveEvaluationLoading(true);
+    } else {
+      setLiveEvaluationRefreshing(true);
+    }
+
+    try {
+      const snapshot = await voiceInterviewApi.getLiveEvaluation(targetSessionId);
+      if (liveEvaluationRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+      setLiveEvaluation(snapshot);
+    } catch (evaluationError) {
+      console.error('Failed to load live evaluation snapshot:', evaluationError);
+    } finally {
+      if (liveEvaluationRequestSeqRef.current === requestSeq) {
+        if (mode === 'initial') {
+          setLiveEvaluationLoading(false);
+        }
+        setLiveEvaluationRefreshing(false);
+      }
+    }
+  }, []);
+
+  const scheduleLiveEvaluationRefresh = useCallback((targetSessionId: number, delayMs = 1600) => {
+    clearPendingEvaluationRefresh();
+    pendingEvaluationRefreshRef.current = setTimeout(() => {
+      pendingEvaluationRefreshRef.current = null;
+      fetchLiveEvaluation(targetSessionId, 'refresh');
+    }, delayMs);
+  }, [clearPendingEvaluationRefresh, fetchLiveEvaluation]);
+
   const commitAiMessage = useCallback((rawText: string) => {
     const normalized = (rawText || '').trim();
     if (!normalized || normalized === lastAiCommittedTextRef.current) {
@@ -110,7 +159,11 @@ export default function VideoInterviewPage() {
     appendMessage('ai', normalized, 'ai');
     lastAiCommittedTextRef.current = normalized;
     setAiText(prev => prev?.trim() === normalized ? '' : prev);
-  }, [appendMessage]);
+    if (liveEvaluationAwaitingTurnRef.current && sessionId) {
+      liveEvaluationAwaitingTurnRef.current = false;
+      scheduleLiveEvaluationRefresh(sessionId);
+    }
+  }, [appendMessage, scheduleLiveEvaluationRefresh, sessionId]);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
@@ -255,13 +308,25 @@ export default function VideoInterviewPage() {
         drainCheckRef.current = null;
       }
       clearPendingAiTextCommit();
+      clearPendingEvaluationRefresh();
       stopCamera();
       const currentSessionId = sessionId;
       if (currentSessionId && !endedByUserRef.current) {
         voiceInterviewApi.pauseSession(currentSessionId).catch(() => {});
       }
     };
-  }, [clearPendingAiTextCommit, sessionId, stopCamera]);
+  }, [clearPendingAiTextCommit, clearPendingEvaluationRefresh, sessionId, stopCamera]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setLiveEvaluation(null);
+      setLiveEvaluationLoading(false);
+      setLiveEvaluationRefreshing(false);
+      return;
+    }
+
+    fetchLiveEvaluation(sessionId, 'initial');
+  }, [fetchLiveEvaluation, sessionId]);
 
   useEffect(() => {
     if (sessionId && connectionStatus === 'connected') {
@@ -319,6 +384,8 @@ export default function VideoInterviewPage() {
     const text = userText.trim();
     appendMessage('user', text, 'user');
     setUserText('');
+    liveEvaluationAwaitingTurnRef.current = true;
+    setLiveEvaluationRefreshing(true);
     wsRef.current.sendControl('submit', { text });
   }, [appendMessage, userText, isSubmitting]);
 
@@ -362,19 +429,40 @@ export default function VideoInterviewPage() {
     onClose: (event: { code: number }) => {
       setConnectionStatus('disconnected');
       clearPendingAiTextCommit();
+      clearPendingEvaluationRefresh();
+      liveEvaluationAwaitingTurnRef.current = false;
+      setLiveEvaluationRefreshing(false);
       if (event.code !== 1000) {
         setError('连接已断开，请刷新页面后重试');
       }
     },
     onError: () => {
       clearPendingAiTextCommit();
+      clearPendingEvaluationRefresh();
+      liveEvaluationAwaitingTurnRef.current = false;
+      setLiveEvaluationRefreshing(false);
       setError('WebSocket 连接错误，请检查网络后重试');
       setConnectionStatus('disconnected');
     },
     onAudioChunk: (data: string, index: number, isLast: boolean) => {
       handleAudioChunk(data, index, isLast);
     },
-  }), [appendMessage, clearPendingAiTextCommit, commitAiMessage, handleAudioChunk, setAiSpeaking]);
+    onRealtimeEvaluation: (snapshot: LiveEvaluationSnapshot) => {
+      liveEvaluationRequestSeqRef.current += 1;
+      clearPendingEvaluationRefresh();
+      liveEvaluationAwaitingTurnRef.current = false;
+      setLiveEvaluation(snapshot);
+      setLiveEvaluationLoading(false);
+      setLiveEvaluationRefreshing(false);
+    },
+  }), [
+    appendMessage,
+    clearPendingAiTextCommit,
+    clearPendingEvaluationRefresh,
+    commitAiMessage,
+    handleAudioChunk,
+    setAiSpeaking,
+  ]);
 
   const connectWithHandlers = useCallback((nextSessionId: number, wsUrl: string) => {
     setTimeout(() => {
@@ -417,6 +505,8 @@ export default function VideoInterviewPage() {
   const handlePhaseConfig = useCallback(async (config: NonNullable<VideoInterviewEntryState['videoConfig']>) => {
     setError(null);
     setConnectionStatus('connecting');
+    clearPendingEvaluationRefresh();
+    liveEvaluationAwaitingTurnRef.current = false;
 
     try {
       const session = await voiceInterviewApi.createSession({
@@ -429,8 +519,13 @@ export default function VideoInterviewPage() {
         plannedDuration: config.plannedDuration,
         resumeId: config.resumeId,
         llmProvider: config.llmProvider,
+        liveEvaluationEnabled: true,
       });
 
+      setLiveEvaluation(null);
+      setLiveEvaluationLoading(true);
+      setLiveEvaluationRefreshing(false);
+      liveEvaluationAwaitingTurnRef.current = false;
       setSessionId(session.sessionId);
       setCurrentPhase(session.currentPhase);
 
@@ -442,7 +537,7 @@ export default function VideoInterviewPage() {
       setConnectionStatus('disconnected');
       alert('创建会话失败：' + errorMessage);
     }
-  }, [connectWithHandlers, resolveWebSocketUrl]);
+  }, [clearPendingEvaluationRefresh, connectWithHandlers, resolveWebSocketUrl]);
 
   useEffect(() => {
     if (autoStartRef.current) return;
@@ -469,6 +564,7 @@ export default function VideoInterviewPage() {
     if (wsRef.current) {
       wsRef.current.disconnect();
     }
+    clearPendingEvaluationRefresh();
     stopCamera();
     if (sessionId) {
       try {
@@ -485,6 +581,7 @@ export default function VideoInterviewPage() {
     if (wsRef.current) {
       wsRef.current.disconnect();
     }
+    clearPendingEvaluationRefresh();
     stopCamera();
     if (sessionId) {
       await voiceInterviewApi.pauseSession(sessionId).catch(() => {});
@@ -687,13 +784,21 @@ export default function VideoInterviewPage() {
             </div>
           </div>
 
-          <div className="h-[520px] md:h-[560px] xl:h-[calc(100vh-240px)] xl:max-h-[760px] bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
-            <RealtimeSubtitle
-              messages={messages}
-              userText={userText}
-              aiText={aiText}
-              isAiSpeaking={isAiSpeaking}
+          <div className="space-y-6">
+            <VideoInterviewLiveScorePanel
+              evaluation={liveEvaluation}
+              loading={liveEvaluationLoading}
+              refreshing={liveEvaluationRefreshing}
             />
+
+            <div className="h-[420px] md:h-[480px] xl:h-[calc(100vh-520px)] xl:min-h-[320px] bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
+              <RealtimeSubtitle
+                messages={messages}
+                userText={userText}
+                aiText={aiText}
+                isAiSpeaking={isAiSpeaking}
+              />
+            </div>
           </div>
         </div>
       </div>

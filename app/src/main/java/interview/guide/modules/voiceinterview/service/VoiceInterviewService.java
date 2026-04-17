@@ -9,7 +9,6 @@ import interview.guide.modules.voiceinterview.dto.CreateSessionRequest;
 import interview.guide.modules.voiceinterview.dto.VoiceInterviewMessageDTO;
 import interview.guide.modules.voiceinterview.dto.SessionMetaDTO;
 import interview.guide.modules.voiceinterview.dto.SessionResponseDTO;
-import interview.guide.modules.voiceinterview.listener.VoiceEvaluateStreamProducer;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewMessageEntity;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionStatus;
@@ -26,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -49,7 +49,7 @@ public class VoiceInterviewService {
     private final VoiceInterviewEvaluationRepository evaluationRepository;
     private final RedissonClient redissonClient;
     private final VoiceInterviewProperties properties;
-    private final VoiceEvaluateStreamProducer voiceEvaluateStreamProducer;
+    private final VoiceInterviewEvaluationDispatcher evaluationDispatcher;
 
     private static final String SESSION_CACHE_KEY_PREFIX = "voice:interview:session:";
     private static final int CACHE_TTL_HOURS = 1;
@@ -81,6 +81,7 @@ public class VoiceInterviewService {
                 .projectEnabled(request.getProjectEnabled())
                 .hrEnabled(request.getHrEnabled())
                 .llmProvider(effectiveLlmProvider)
+                .liveEvaluationEnabled(Boolean.TRUE.equals(request.getLiveEvaluationEnabled()))
                 .plannedDuration(request.getPlannedDuration())
                 .currentPhase(determineFirstPhase(request))
                 .build();
@@ -107,6 +108,7 @@ public class VoiceInterviewService {
         }
         log.info("Auto-ending IN_PROGRESS session {} after WebSocket disconnect", sessionId);
         endSession(session);
+        triggerEvaluation(sessionIdLong);
     }
 
     /**
@@ -126,7 +128,7 @@ public class VoiceInterviewService {
         }
 
         endSession(session);
-        voiceEvaluateStreamProducer.sendEvaluateTask(sessionId);
+        triggerEvaluation(sessionIdLong);
     }
 
     private void endSession(VoiceInterviewSessionEntity session) {
@@ -258,6 +260,81 @@ public class VoiceInterviewService {
     }
 
     /**
+     * Save interviewer text as a standalone turn prompt.
+     */
+    @Transactional
+    public VoiceInterviewMessageEntity saveAiMessage(String sessionId, String aiText) {
+        Long sessionIdLong = parseSessionId(sessionId);
+        VoiceInterviewSessionEntity session = getSession(sessionIdLong);
+
+        if (session == null) {
+            log.warn("Cannot save AI message - session not found: {}", sessionId);
+            return null;
+        }
+
+        String normalizedAiText = normalizeText(aiText);
+        if (normalizedAiText == null) {
+            return null;
+        }
+
+        VoiceInterviewMessageEntity message = buildMessage(
+            sessionIdLong,
+            session.getCurrentPhase(),
+            null,
+            normalizedAiText
+        );
+
+        VoiceInterviewMessageEntity saved = messageRepository.save(message);
+        log.debug("Saved AI prompt for session: {}, phase: {}, sequence: {}",
+            sessionId, session.getCurrentPhase(), saved.getSequenceNum());
+        return saved;
+    }
+
+    /**
+     * Attach the latest submitted candidate answer to the most recent unanswered AI prompt.
+     * Falls back to creating a user-only record if no pending AI prompt exists.
+     */
+    @Transactional
+    public VoiceInterviewMessageEntity attachUserAnswer(String sessionId, String userText) {
+        Long sessionIdLong = parseSessionId(sessionId);
+        VoiceInterviewSessionEntity session = getSession(sessionIdLong);
+
+        if (session == null) {
+            log.warn("Cannot attach user answer - session not found: {}", sessionId);
+            return null;
+        }
+
+        String normalizedUserText = normalizeText(userText);
+        if (normalizedUserText == null) {
+            return null;
+        }
+
+        Optional<VoiceInterviewMessageEntity> latestMessage =
+            messageRepository.findTopBySessionIdOrderBySequenceNumDesc(sessionIdLong);
+        if (latestMessage.isPresent()) {
+            VoiceInterviewMessageEntity latest = latestMessage.get();
+            if (isPendingAiPrompt(latest)) {
+                latest.setUserRecognizedText(normalizedUserText);
+                VoiceInterviewMessageEntity saved = messageRepository.save(latest);
+                log.debug("Attached user answer to prompt for session: {}, sequence: {}",
+                    sessionId, saved.getSequenceNum());
+                return saved;
+            }
+        }
+
+        VoiceInterviewMessageEntity message = buildMessage(
+            sessionIdLong,
+            session.getCurrentPhase(),
+            normalizedUserText,
+            null
+        );
+        VoiceInterviewMessageEntity saved = messageRepository.save(message);
+        log.debug("Saved fallback user-only message for session: {}, phase: {}, sequence: {}",
+            sessionId, session.getCurrentPhase(), saved.getSequenceNum());
+        return saved;
+    }
+
+    /**
      * Get conversation history for a session
      * 获取会话的对话历史记录
      *
@@ -380,6 +457,9 @@ public class VoiceInterviewService {
                 .messageCount(messageRepository.countBySessionId(session.getId()))
                 .evaluateStatus(session.getEvaluateStatus() != null ? session.getEvaluateStatus().name() : null)
                 .evaluateError(session.getEvaluateError())
+                .overallScore(evaluationRepository.findBySessionId(session.getId())
+                    .map(evaluation -> evaluation.getOverallScore())
+                    .orElse(null))
                 .build())
             .collect(Collectors.toList());
     }
@@ -531,6 +611,36 @@ public class VoiceInterviewService {
         return (int) messageRepository.countBySessionId(sessionId) + 1;
     }
 
+    private VoiceInterviewMessageEntity buildMessage(
+        Long sessionId,
+        VoiceInterviewSessionEntity.InterviewPhase phase,
+        String userText,
+        String aiText
+    ) {
+        return VoiceInterviewMessageEntity.builder()
+            .sessionId(sessionId)
+            .messageType("DIALOGUE")
+            .phase(phase)
+            .userRecognizedText(userText)
+            .aiGeneratedText(aiText)
+            .sequenceNum(getNextSequenceNum(sessionId))
+            .build();
+    }
+
+    private boolean isPendingAiPrompt(VoiceInterviewMessageEntity message) {
+        return message != null
+            && normalizeText(message.getAiGeneratedText()) != null
+            && normalizeText(message.getUserRecognizedText()) == null;
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return null;
+        }
+        String normalized = text.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
     /**
      * Update evaluation status on session entity (shared by Producer/Consumer/Controller)
      */
@@ -539,7 +649,9 @@ public class VoiceInterviewService {
             sessionRepository.findById(sessionId).ifPresent(session -> {
                 session.setEvaluateStatus(status);
                 session.setEvaluateError(error);
-                sessionRepository.save(session);
+                VoiceInterviewSessionEntity saved = sessionRepository.save(session);
+                invalidateSessionCache(sessionId);
+                cacheSession(saved);
                 log.debug("Evaluation status updated: sessionId={}, status={}", sessionId, status);
             });
         } catch (Exception e) {
@@ -553,8 +665,7 @@ public class VoiceInterviewService {
      */
     @Transactional
     public void triggerEvaluation(Long sessionId) {
-        updateEvaluateStatus(sessionId, AsyncTaskStatus.PENDING, null);
-        voiceEvaluateStreamProducer.sendEvaluateTask(sessionId.toString());
+        evaluationDispatcher.requestEvaluation(sessionId);
     }
 
     /**

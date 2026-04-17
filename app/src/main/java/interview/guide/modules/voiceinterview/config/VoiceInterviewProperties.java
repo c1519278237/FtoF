@@ -4,6 +4,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,7 @@ public class VoiceInterviewProperties {
     private AudioConfig audio = new AudioConfig();
     private QwenConfig qwen = new QwenConfig();
     private OpeningConfig opening = new OpeningConfig();
+    private LiveEvaluationConfig liveEvaluation = new LiveEvaluationConfig();
 
     /**
      * 语音面试单轮面试官回复最大字符数（超出会截断到句子边界）。
@@ -155,5 +157,48 @@ public class VoiceInterviewProperties {
             "你好，我是本场面试官。先做一道算法与数据结构热身题：请你从“哈希表/堆/栈/队列/树/图”里选两个，结合一道你熟悉的题，口述“为什么选这个结构、核心步骤、时间复杂度、空间复杂度、边界条件与反例”。本场不需要写代码，重点看你的思路和取舍。";
         private String backendQuestion =
             "你好，我是本场面试官。第一个问题：请用 1 分钟介绍一个你深度参与的项目，按三点回答：业务目标、你负责的核心模块、核心技术栈。说完我会立刻追问一个关键技术决策。";
+    }
+
+    @Data
+    public static class LiveEvaluationConfig {
+        private boolean enabled = true;
+        private int minTurns = 1;
+        private int contextTurns = 6;
+        private int maxParallelEvaluators = 6;
+        private long evaluatorTimeoutMs = 3500;
+        private List<EvaluatorConfig> evaluators = new ArrayList<>(List.of(
+            new EvaluatorConfig("tech_depth", "技术深挖官", "技术正确性与实现细节",
+                "重点判断回答是否准确，是否理解底层原理，以及是否具备工程落地细节", null),
+            new EvaluatorConfig("system_design", "系统设计官", "结构化表达与方案取舍",
+                "重点判断是否能讲清系统拆分、边界条件、权衡思路与扩展性", null),
+            new EvaluatorConfig("hr_signal", "沟通表现官", "表达状态与职业化沟通",
+                "重点判断表达是否清晰、自信、自然，是否具备稳定的沟通状态", null),
+            new EvaluatorConfig("hiring_manager", "业务结果官", "业务理解与责任意识",
+                "重点判断是否能把技术决策和业务目标、结果影响、主人翁意识连接起来", null),
+            new EvaluatorConfig("peer_engineer", "协作配合官", "团队协作与共事成本",
+                "重点判断是否容易协作、是否会主动澄清、是否适合日常团队配合", null),
+            new EvaluatorConfig("growth_coach", "成长潜力官", "反思能力与成长速度",
+                "重点判断复盘意识、学习敏捷度、可培养性和长期成长空间", null)
+        ));
+    }
+
+    @Data
+    public static class EvaluatorConfig {
+        private String id;
+        private String name;
+        private String role;
+        private String focus;
+        private String provider;
+
+        public EvaluatorConfig() {
+        }
+
+        public EvaluatorConfig(String id, String name, String role, String focus, String provider) {
+            this.id = id;
+            this.name = name;
+            this.role = role;
+            this.focus = focus;
+            this.provider = provider;
+        }
     }
 }

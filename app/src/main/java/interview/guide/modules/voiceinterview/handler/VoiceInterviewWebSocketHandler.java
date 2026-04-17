@@ -5,12 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import interview.guide.modules.voiceinterview.dto.WebSocketControlMessage;
 import interview.guide.modules.voiceinterview.dto.WebSocketSubtitleMessage;
+import interview.guide.modules.voiceinterview.dto.VoiceInterviewLiveEvaluationDTO;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewMessageEntity;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
 import interview.guide.modules.voiceinterview.service.QwenAsrService;
 import interview.guide.modules.voiceinterview.service.QwenTtsService;
 import interview.guide.modules.voiceinterview.service.DashscopeLlmService;
+import interview.guide.modules.voiceinterview.service.VoiceInterviewLiveEvaluationService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +62,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
     private final QwenTtsService ttsService;
     private final DashscopeLlmService llmService;
     private final VoiceInterviewService interviewService;
+    private final VoiceInterviewLiveEvaluationService liveEvaluationService;
     private final VoiceInterviewProperties voiceInterviewProperties;
     private final ObjectProvider<MeterRegistry> meterRegistryProvider;
 
@@ -235,7 +238,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
                 // 文本先行，保证前端立即可见
                 sendTextMessage(session, aiReply);
-                saveMessage(sessionId, null, aiReply);
+                saveAiMessage(sessionId, aiReply);
 
                 // 语音随后下发
                 byte[] wavAudio = getOpeningWavAudio(aiReply);
@@ -585,6 +588,9 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
             }
 
             List<String> conversationHistory = getHistory(sessionId);
+            if (saveUserAnswer(sessionId, userText)) {
+                scheduleLiveEvaluation(sessionId, sessionEntity);
+            }
 
             long llmStartNanos = System.nanoTime();
             AtomicLong firstTokenAtNanos = new AtomicLong(0);
@@ -641,7 +647,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
                 sendSubtitle(session, userText, true);
                 sendTextMessage(session, aiReply);
-                saveMessage(sessionId, userText, aiReply);
+                saveAiMessage(sessionId, aiReply);
 
                 // 按顺序收集所有 TTS 结果
                 if (!ttsFutures.isEmpty()) {
@@ -714,7 +720,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
                 sendSubtitle(session, userText, true);
                 sendTextMessage(session, aiReply);
-                saveMessage(sessionId, userText, aiReply);
+                saveAiMessage(sessionId, aiReply);
 
                 long ttsStartNanos = System.nanoTime();
                 log.info("[Session: {}] Starting TTS synthesis for text (length: {})",
@@ -977,13 +983,15 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         try {
             List<VoiceInterviewMessageEntity> messages = interviewService.getConversationHistory(sessionId);
             List<String> history = new ArrayList<>();
+            boolean interviewerFirst = usesInterviewerFirstHistory(messages);
 
             for (VoiceInterviewMessageEntity msg : messages) {
-                if (msg.getUserRecognizedText() != null && !msg.getUserRecognizedText().isEmpty()) {
-                    history.add("用户：" + msg.getUserRecognizedText());
-                }
-                if (msg.getAiGeneratedText() != null && !msg.getAiGeneratedText().isEmpty()) {
-                    history.add("AI：" + msg.getAiGeneratedText());
+                if (interviewerFirst) {
+                    addHistoryMessage(history, "AI：", msg.getAiGeneratedText());
+                    addHistoryMessage(history, "用户：", msg.getUserRecognizedText());
+                } else {
+                    addHistoryMessage(history, "用户：", msg.getUserRecognizedText());
+                    addHistoryMessage(history, "AI：", msg.getAiGeneratedText());
                 }
             }
 
@@ -1009,15 +1017,92 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
     }
 
     /**
-     * Save message to database
+     * Persist the next interviewer prompt as a standalone turn.
      */
-    private void saveMessage(String sessionId, String userText, String aiText) {
+    private void saveAiMessage(String sessionId, String aiText) {
         try {
-            interviewService.saveMessage(sessionId, userText, aiText);
-            log.debug("Message saved to database for session: {}", sessionId);
+            interviewService.saveAiMessage(sessionId, aiText);
+            log.debug("AI prompt saved to database for session: {}", sessionId);
         } catch (Exception e) {
-            log.error("Error saving message for session {}", sessionId, e);
+            log.error("Error saving AI prompt for session {}", sessionId, e);
         }
+    }
+
+    /**
+     * Persist the just-submitted user answer onto the latest unanswered interviewer prompt.
+     */
+    private boolean saveUserAnswer(String sessionId, String userText) {
+        try {
+            return interviewService.attachUserAnswer(sessionId, userText) != null;
+        } catch (Exception e) {
+            log.error("Error saving user answer for session {}", sessionId, e);
+            return false;
+        }
+    }
+
+    private void scheduleLiveEvaluation(String sessionId, VoiceInterviewSessionEntity sessionEntity) {
+        if (sessionEntity == null || !Boolean.TRUE.equals(sessionEntity.getLiveEvaluationEnabled())) {
+            return;
+        }
+        SessionState state = sessionStates.get(sessionId);
+        if (state == null) {
+            return;
+        }
+
+        state.liveEvaluationDirty.set(true);
+        if (!state.liveEvaluationRunning.compareAndSet(false, true)) {
+            return;
+        }
+
+        voicePipelineExecutor.execute(() -> runLiveEvaluationLoop(sessionId, state));
+    }
+
+    private void runLiveEvaluationLoop(String sessionId, SessionState state) {
+        try {
+            while (true) {
+                state.liveEvaluationDirty.set(false);
+
+                VoiceInterviewLiveEvaluationDTO snapshot =
+                    liveEvaluationService.generateLiveEvaluation(Long.parseLong(sessionId));
+                if (snapshot != null) {
+                    WebSocketSession activeSession = sessions.get(sessionId);
+                    if (activeSession != null && activeSession.isOpen()) {
+                        sendMessage(activeSession, toJson(Map.of(
+                            "type", "realtime_evaluation",
+                            "data", snapshot
+                        )));
+                    }
+                }
+
+                if (!state.liveEvaluationDirty.get()) {
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Live evaluation refresh failed for session {}: {}", sessionId, e.getMessage());
+        } finally {
+            state.liveEvaluationRunning.set(false);
+            if (state.liveEvaluationDirty.get() && state.liveEvaluationRunning.compareAndSet(false, true)) {
+                voicePipelineExecutor.execute(() -> runLiveEvaluationLoop(sessionId, state));
+            }
+        }
+    }
+
+    private boolean usesInterviewerFirstHistory(List<VoiceInterviewMessageEntity> messages) {
+        return messages.stream().anyMatch(message ->
+            hasText(message.getAiGeneratedText()) && !hasText(message.getUserRecognizedText())
+        );
+    }
+
+    private void addHistoryMessage(List<String> history, String speaker, String text) {
+        if (!hasText(text)) {
+            return;
+        }
+        history.add(speaker + text.trim());
+    }
+
+    private boolean hasText(String text) {
+        return text != null && !text.trim().isEmpty();
     }
 
     /**
@@ -1101,6 +1186,8 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         private final AtomicLong mergeStartedAt = new AtomicLong(0);
         /** 最近一次 STT 活动时间（partial/final） */
         private final AtomicLong lastSttActivityAt = new AtomicLong(System.currentTimeMillis());
+        private final AtomicBoolean liveEvaluationRunning = new AtomicBoolean(false);
+        private final AtomicBoolean liveEvaluationDirty = new AtomicBoolean(false);
         /** 当前正在执行 LLM+TTS 管线的虚拟线程，断连时可中断 */
         private volatile Thread processingThread = null;
 
