@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {AnimatePresence, motion} from 'framer-motion';
-import {AlertCircle, CheckCircle, Clock, FileStack, RefreshCw, Sparkles, Upload} from 'lucide-react';
+import {AlertCircle, BriefcaseBusiness, CheckCircle, Clock, FileUser, RefreshCw, Upload} from 'lucide-react';
 import {historyApi, ResumeListItem} from '../api/history';
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
 import {formatDateOnly} from '../utils/date';
@@ -112,7 +112,7 @@ export default function HistoryList({onSelectResume}: HistoryListProps) {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
-            <FileStack className="w-7 h-7 text-primary-500" />
+            <FileUser className="w-7 h-7 text-primary-500" />
             简历管理
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">管理您的简历，AI 智能分析与评分</p>
@@ -129,7 +129,7 @@ export default function HistoryList({onSelectResume}: HistoryListProps) {
             onClick={() => navigate('/interview-hub')}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
           >
-            <Sparkles className="w-4 h-4" />
+            <BriefcaseBusiness className="w-4 h-4" />
             模拟面试
           </button>
         </div>

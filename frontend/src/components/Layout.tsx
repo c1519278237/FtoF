@@ -1,16 +1,17 @@
 import {AnimatePresence, motion} from 'framer-motion';
 import {
-  Calendar,
-  ChevronRight,
-  Database,
-  FileStack,
-  Home,
-  Menu,
-  MessageSquare,
+  BotMessageSquare,
+  BriefcaseBusiness,
+  CalendarDays,
+  ChevronLeft,
+  Files,
+  FolderOpenDot,
+  House,
+  LibraryBig,
   Moon,
-  Sparkles,
+  PanelRightOpen,
+  PanelsTopLeft,
   Sun,
-  Users,
   X,
 } from 'lucide-react';
 import {type ComponentType, useEffect, useState} from 'react';
@@ -129,7 +130,7 @@ export default function Layout() {
           id: 'home',
           path: '/',
           label: '首页',
-          icon: Home,
+          icon: House,
           description: '训练概览与快捷入口',
         },
       ],
@@ -142,28 +143,28 @@ export default function Layout() {
           id: 'resumes',
           path: '/history',
           label: '简历管理',
-          icon: FileStack,
+          icon: FolderOpenDot,
           description: '管理简历与 AI 分析',
         },
         {
           id: 'interview-hub',
           path: '/interview-hub',
           label: '模拟面试',
-          icon: Sparkles,
+          icon: BriefcaseBusiness,
           description: '文本、语音和视频训练',
         },
         {
           id: 'interviews',
           path: '/interviews',
           label: '面试记录',
-          icon: Users,
+          icon: Files,
           description: '查看历史报告与成绩',
         },
         {
           id: 'interview-schedule',
           path: '/interview-schedule',
           label: '面试日程',
-          icon: Calendar,
+          icon: CalendarDays,
           description: '安排与管理面试计划',
         },
       ],
@@ -176,14 +177,14 @@ export default function Layout() {
           id: 'kb-manage',
           path: '/knowledgebase',
           label: '知识库管理',
-          icon: Database,
+          icon: LibraryBig,
           description: '维护文档与向量化数据',
         },
         {
           id: 'kb-chat',
           path: '/knowledgebase/chat',
           label: '问答助手',
-          icon: MessageSquare,
+          icon: BotMessageSquare,
           description: '基于知识库进行问答',
         },
       ],
@@ -220,7 +221,7 @@ export default function Layout() {
       <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-5 dark:border-slate-800">
         <Link to="/" className="flex items-center gap-3" onClick={onItemClick}>
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 via-sky-500 to-emerald-400 text-white shadow-lg shadow-cyan-500/30">
-            <Sparkles className="h-5 w-5" />
+            <PanelsTopLeft className="h-5 w-5" />
           </div>
           <div>
             <span className="block text-lg font-semibold tracking-tight text-slate-950 dark:text-white">
@@ -310,10 +311,10 @@ export default function Layout() {
                         )}
                       </div>
 
-                      <ChevronRight className={`h-4 w-4 transition-transform ${
+                      <ChevronLeft className={`h-4 w-4 transition-transform ${
                         active
                           ? 'translate-x-0 text-white/80 dark:text-slate-700'
-                          : 'text-slate-300 group-hover:translate-x-0.5 group-hover:text-slate-500 dark:text-slate-600'
+                          : 'text-slate-300 group-hover:-translate-x-0.5 group-hover:text-slate-500 dark:text-slate-600'
                       }`} />
                     </Link>
                   );
@@ -341,7 +342,7 @@ export default function Layout() {
         <div className="absolute bottom-[-120px] right-[-60px] h-96 w-96 rounded-full bg-emerald-200/35 blur-3xl dark:bg-emerald-500/10" />
       </div>
 
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:w-72 lg:flex-col lg:border-r lg:border-slate-200/70 lg:bg-slate-50/80 lg:backdrop-blur-xl dark:lg:border-slate-800 dark:lg:bg-slate-950/65">
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:right-0 lg:z-40 lg:flex lg:w-72 lg:flex-col lg:border-l lg:border-slate-200/70 lg:bg-slate-50/80 lg:backdrop-blur-xl dark:lg:border-slate-800 dark:lg:bg-slate-950/65">
         {renderNav()}
       </aside>
 
@@ -349,7 +350,7 @@ export default function Layout() {
         <div className="flex items-center justify-between gap-3">
           <Link to="/" className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 via-sky-500 to-emerald-400 text-white shadow-lg shadow-cyan-500/30">
-              <Sparkles className="h-5 w-5" />
+              <PanelsTopLeft className="h-5 w-5" />
             </div>
             <div className="min-w-0">
               <span className="block truncate text-sm font-semibold text-slate-950 dark:text-white">
@@ -376,7 +377,7 @@ export default function Layout() {
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
               aria-label="打开导航"
             >
-              <Menu className="h-5 w-5" />
+              <PanelRightOpen className="h-5 w-5" />
             </button>
           </div>
         </div>
@@ -396,11 +397,11 @@ export default function Layout() {
             />
 
             <motion.aside
-              initial={{x: -320}}
+              initial={{x: 320}}
               animate={{x: 0}}
-              exit={{x: -320}}
+              exit={{x: 320}}
               transition={{type: 'spring', stiffness: 280, damping: 28}}
-              className="fixed inset-y-0 left-0 z-50 flex w-[88vw] max-w-sm flex-col border-r border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 lg:hidden"
+              className="fixed inset-y-0 right-0 z-50 flex w-[88vw] max-w-sm flex-col border-l border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 lg:hidden"
             >
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-800">
                 <span className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
@@ -421,7 +422,7 @@ export default function Layout() {
         )}
       </AnimatePresence>
 
-      <main className="relative min-h-screen px-4 pb-8 pt-4 sm:px-6 lg:ml-72 lg:px-8 lg:py-8">
+      <main className="relative min-h-screen px-4 pb-8 pt-4 sm:px-6 lg:mr-72 lg:px-8 lg:py-8">
         <motion.div
           key={currentPath}
           initial={{opacity: 0, y: 18}}

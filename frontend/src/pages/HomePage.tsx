@@ -3,18 +3,18 @@ import {Link} from 'react-router-dom';
 import {motion} from 'framer-motion';
 import {
   ArrowRight,
+  BotMessageSquare,
   BrainCircuit,
+  BriefcaseBusiness,
+  ChartColumnBig,
   CheckCircle2,
-  Database,
-  FileText,
-  MessageSquare,
-  Mic,
-  PlayCircle,
+  FileUser,
+  LibraryBig,
+  MicVocal,
+  NotebookTabs,
   Search,
-  Sparkles,
   Upload,
   Video,
-  Workflow,
 } from 'lucide-react';
 import {historyApi, type ResumeListItem, type ResumeStats} from '../api/history';
 import {interviewApi, type TextSessionMeta} from '../api/interview';
@@ -314,7 +314,7 @@ export default function HomePage() {
 
             <div className="relative max-w-2xl">
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-cyan-100 backdrop-blur">
-                <Sparkles className="h-4 w-4" />
+                <BotMessageSquare className="h-4 w-4" />
                 今日训练总览
               </div>
 
@@ -342,7 +342,7 @@ export default function HomePage() {
                   to="/interview-hub"
                   className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur transition-transform hover:-translate-y-0.5"
                 >
-                  <PlayCircle className="h-4 w-4" />
+                  <BriefcaseBusiness className="h-4 w-4" />
                   发起模拟面试
                 </Link>
                 <Link
@@ -393,7 +393,7 @@ export default function HomePage() {
                   </h2>
                 </div>
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500 text-white shadow-lg shadow-cyan-500/30">
-                  <Workflow className="h-5 w-5" />
+                  <ChartColumnBig className="h-5 w-5" />
                 </div>
               </div>
 
@@ -446,7 +446,7 @@ export default function HomePage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              <StatCard accent="bg-gradient-to-br from-cyan-500 to-sky-500" icon={FileText} label="简历访问热度" value={stats.totalAccessCount} />
+              <StatCard accent="bg-gradient-to-br from-cyan-500 to-sky-500" icon={FileUser} label="简历访问热度" value={stats.totalAccessCount} />
               <StatCard accent="bg-gradient-to-br from-emerald-500 to-teal-500" icon={BrainCircuit} label="文本面试均分" value={dashboard?.scoredInterviewAverage ?? 0} />
             </div>
           </motion.div>
@@ -454,10 +454,10 @@ export default function HomePage() {
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard accent="bg-gradient-to-br from-rose-500 to-orange-500" icon={Video} label="视频面试" value={dashboard?.videoSessionCount ?? 0} />
-          <StatCard accent="bg-gradient-to-br from-slate-950 to-slate-700" icon={Upload} label="简历总数" value={stats.totalCount} />
-          <StatCard accent="bg-gradient-to-br from-fuchsia-500 to-rose-500" icon={MessageSquare} label="文本面试" value={dashboard?.textSessionCount ?? 0} />
-          <StatCard accent="bg-gradient-to-br from-cyan-500 to-blue-500" icon={Mic} label="语音面试" value={dashboard?.voiceSessionCount ?? 0} />
-          <StatCard accent="bg-gradient-to-br from-emerald-500 to-lime-500" icon={Database} label="知识库文档" value={knowledgeStats.totalCount} />
+          <StatCard accent="bg-gradient-to-br from-slate-950 to-slate-700" icon={FileUser} label="简历总数" value={stats.totalCount} />
+          <StatCard accent="bg-gradient-to-br from-fuchsia-500 to-rose-500" icon={NotebookTabs} label="文本面试" value={dashboard?.textSessionCount ?? 0} />
+          <StatCard accent="bg-gradient-to-br from-cyan-500 to-blue-500" icon={MicVocal} label="语音面试" value={dashboard?.voiceSessionCount ?? 0} />
+          <StatCard accent="bg-gradient-to-br from-emerald-500 to-lime-500" icon={LibraryBig} label="知识库文档" value={knowledgeStats.totalCount} />
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -489,19 +489,19 @@ export default function HomePage() {
                 <ActionCard
                   description="上传或追加简历，快速建立新的候选人画像和评估起点。"
                   href={ROUTES.resumeUpload}
-                  icon={Upload}
+                  icon={FileUser}
                   title="新增简历"
                 />
                 <ActionCard
                   description="发起文本、语音或视频模拟，把面试训练直接推进到实战阶段。"
                   href="/interview-hub"
-                  icon={Sparkles}
+                  icon={BriefcaseBusiness}
                   title="开始面试"
                 />
                 <ActionCard
                   description="上传岗位资料或项目文档，用知识库补齐回答素材和上下文。"
                   href="/knowledgebase"
-                  icon={Database}
+                  icon={LibraryBig}
                   title="维护知识库"
                 />
               </div>
@@ -549,11 +549,11 @@ export default function HomePage() {
                               : 'bg-cyan-500 text-white'
                         }`}>
                           {item.type === 'text' ? (
-                            <MessageSquare className="h-5 w-5" />
+                            <NotebookTabs className="h-5 w-5" />
                           ) : item.type === 'video' ? (
                             <Video className="h-5 w-5" />
                           ) : (
-                            <Mic className="h-5 w-5" />
+                            <MicVocal className="h-5 w-5" />
                           )}
                         </div>
                         <div>
