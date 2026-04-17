@@ -35,6 +35,11 @@ export default function InterviewHubPage() {
   const navigate = useNavigate();
 
   const config = useInterviewConfig({ autoLoad: false });
+  const startButtonModeLabel: Record<InterviewMode, string> = {
+    text: '文字',
+    voice: '语音',
+    video: '视频',
+  };
 
   // === 最近面试记录 ===
   const [recentInterviews, setRecentInterviews] = useState<RecentInterviewItem[]>([]);
@@ -471,7 +476,7 @@ export default function InterviewHubPage() {
               bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700
               text-white shadow-lg shadow-primary-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            开始{config.mode === 'text' ? '文字' : '语音'}面试
+            开始{startButtonModeLabel[config.mode]}面试
           </motion.button>
         </div>
       </div>
