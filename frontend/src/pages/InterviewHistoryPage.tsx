@@ -11,20 +11,20 @@ import {getTemplateName} from '../utils/voiceInterview';
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
 import {
   AlertCircle,
+  BriefcaseBusiness,
+  ChartColumnBig,
   CheckCircle,
   ChevronRight,
   Clock,
   Download,
-  FileText,
   Loader2,
-  Mic,
+  MicVocal,
+  NotebookTabs,
   PlayCircle,
   RefreshCw,
   RotateCcw,
   Search,
   Trash2,
-  TrendingUp,
-  Users,
 } from 'lucide-react';
 
 type InterviewType = 'all' | 'text' | 'voice';
@@ -136,14 +136,14 @@ function TypeBadge({ type }: { type: 'text' | 'voice' }) {
   if (type === 'voice') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full text-xs font-medium">
-        <Mic className="w-3 h-3" />
+        <MicVocal className="w-3 h-3" />
         语音
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-xs font-medium">
-      <FileText className="w-3 h-3" />
+      <NotebookTabs className="w-3 h-3" />
       文字
     </span>
   );
@@ -371,7 +371,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
           >
-            <Users className="w-7 h-7 text-primary-500" />
+            <BriefcaseBusiness className="w-7 h-7 text-primary-500" />
             面试记录
           </motion.h1>
           <motion.p
@@ -403,9 +403,9 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <StatCard icon={Users} label="面试总数" value={stats.totalCount} color="bg-primary-500" />
+          <StatCard icon={BriefcaseBusiness} label="面试总数" value={stats.totalCount} color="bg-primary-500" />
           <StatCard icon={CheckCircle} label="已完成" value={stats.completedCount} color="bg-emerald-500" />
-          <StatCard icon={TrendingUp} label="平均分数" value={stats.averageScore} suffix="分" color="bg-indigo-500" />
+          <StatCard icon={ChartColumnBig} label="平均分数" value={stats.averageScore} suffix="分" color="bg-indigo-500" />
         </div>
       )}
 
@@ -444,7 +444,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
         >
-          <Users className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+          <BriefcaseBusiness className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2">暂无面试记录</h3>
           <p className="text-slate-500 dark:text-slate-400">开始一次模拟面试后，记录将显示在这里</p>
         </motion.div>
@@ -487,9 +487,9 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         {item.type === 'text' ? (
-                          <FileText className="w-5 h-5 text-slate-400" />
+                          <NotebookTabs className="w-5 h-5 text-slate-400" />
                         ) : (
-                          <Mic className="w-5 h-5 text-purple-400" />
+                          <MicVocal className="w-5 h-5 text-purple-400" />
                         )}
                         <div>
                           <p className="font-medium text-slate-800 dark:text-white">{item.title}</p>

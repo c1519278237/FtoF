@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ChevronDown, ChevronUp, FileStack, FileText, Loader2, Mic,
-  RefreshCw, Sparkles, Video,
+  BriefcaseBusiness, ChevronDown, ChevronUp, FileUser, Loader2, MicVocal,
+  NotebookTabs, RefreshCw, Video,
 } from 'lucide-react';
 import { type SkillDTO } from '../api/skill';
 import { interviewApi, type TextSessionMeta } from '../api/interview';
@@ -154,7 +154,7 @@ export default function InterviewHubPage() {
       {/* 页面标题 */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
-          <Sparkles className="w-7 h-7 text-primary-500" />
+            <BriefcaseBusiness className="w-7 h-7 text-primary-500" />
           模拟面试
         </h1>
         <p className="text-slate-500 dark:text-slate-400 mt-1">选择面试模式和方向，快速开始练习</p>
@@ -173,14 +173,14 @@ export default function InterviewHubPage() {
                 {
                   value: 'text' as InterviewMode,
                   label: '文字面试',
-                  icon: FileText,
+                  icon: NotebookTabs,
                   desc: '推荐：更稳定，更适合系统化刷题与复盘',
                   recommended: true,
                 },
                 {
                   value: 'voice' as InterviewMode,
                   label: '语音面试',
-                  icon: Mic,
+                  icon: MicVocal,
                   desc: '实时语音对话，更偏临场模拟',
                   recommended: false,
                 },
@@ -318,7 +318,7 @@ export default function InterviewHubPage() {
                       bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50
                       disabled:cursor-not-allowed transition-colors"
                   >
-                    {config.parsingJd ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {config.parsingJd ? <Loader2 className="w-4 h-4 animate-spin" /> : <BriefcaseBusiness className="w-4 h-4" />}
                     解析面试方向
                   </button>
                   {config.customCategories.length > 0 && (
@@ -393,7 +393,7 @@ export default function InterviewHubPage() {
                 {/* 简历选择 */}
                 <div className="bg-gradient-to-br from-primary-50/80 to-blue-50/80 dark:from-primary-900/20 dark:to-blue-900/10 rounded-xl p-4 border border-primary-100 dark:border-primary-800/30">
                   <div className="flex items-center gap-3 mb-3">
-                    <FileStack className="w-5 h-5 text-primary-500" />
+                    <FileUser className="w-5 h-5 text-primary-500" />
                     <p className="font-semibold text-sm text-primary-900 dark:text-primary-100">
                       基于简历面试（可选）
                     </p>
@@ -528,7 +528,7 @@ export default function InterviewHubPage() {
                       ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
                       : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
                   }`}>
-                    {item.type === 'text' ? <FileText className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    {item.type === 'text' ? <NotebookTabs className="w-5 h-5" /> : <MicVocal className="w-5 h-5" />}
                   </div>
 
                   {/* 信息 */}
