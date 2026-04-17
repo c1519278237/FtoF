@@ -10,6 +10,7 @@ import { ROUTES } from './constants/routes';
 
 // Lazy load components
 const UploadPage = lazy(() => import('./pages/UploadPage'));
+const HomePage = lazy(() => import('./pages/HomePage'));
 const HistoryList = lazy(() => import('./pages/HistoryPage'));
 const ResumeDetailPage = lazy(() => import('./pages/ResumeDetailPage'));
 const Interview = lazy(() => import('./pages/InterviewPage'));
@@ -170,7 +171,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             {/* 默认重定向到简历管理页面 */}
-            <Route index element={<Navigate to="/history" replace />} />
+            <Route index element={<HomePage />} />
 
             {/* 上传页面 */}
             <Route path="upload" element={<UploadPageWrapper />} />
