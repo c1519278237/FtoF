@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { EvaluationStatusResponse, VoiceEvaluationDetail, voiceInterviewApi } from '../api/voiceInterview';
 import InterviewDetailPanel from '../components/InterviewDetailPanel';
@@ -8,6 +8,8 @@ import type { InterviewDetail } from '../api/history';
 export default function VoiceInterviewEvaluationPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isVideoEvaluation = location.pathname.startsWith('/video-interview/');
   const [evaluation, setEvaluation] = useState<VoiceEvaluationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [evaluateStatus, setEvaluateStatus] = useState<string | null>(null);
@@ -200,8 +202,12 @@ export default function VoiceInterviewEvaluationPage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">面试评估报告</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">语音会话 ID: {sessionId}</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+              {isVideoEvaluation ? '视频面试评估报告' : '语音面试评估报告'}
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {isVideoEvaluation ? '视频会话' : '语音会话'} ID: {sessionId}
+            </p>
           </div>
         </div>
         <InterviewDetailPanel interview={interviewDetail} />

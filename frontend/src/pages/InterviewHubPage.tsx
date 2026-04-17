@@ -22,7 +22,7 @@ import {
 // 统一的面试记录项
 interface RecentInterviewItem {
   id: string;
-  type: 'text' | 'voice';
+  type: 'text' | 'voice' | 'video';
   title: string;
   status: string;
   evaluateStatus?: string | null;
@@ -64,9 +64,9 @@ export default function InterviewHubPage() {
           createdAt: s.createdAt,
         })),
         ...voiceSessions.map(s => ({
-          id: `voice-${s.sessionId}`,
-          type: 'voice' as const,
-          title: s.roleType || '语音面试',
+          id: `${s.interviewMode === 'VIDEO' ? 'video' : 'voice'}-${s.sessionId}`,
+          type: s.interviewMode === 'VIDEO' ? 'video' as const : 'voice' as const,
+          title: s.roleType || (s.interviewMode === 'VIDEO' ? '视频面试' : '语音面试'),
           status: s.status,
           evaluateStatus: s.evaluateStatus,
           overallScore: s.overallScore ?? null,
@@ -507,6 +507,7 @@ export default function InterviewHubPage() {
             {recentInterviews.map((item, index) => {
               const isCompleted = item.evaluateStatus === 'COMPLETED' || item.status === 'EVALUATED';
               const isEvaluating = item.evaluateStatus === 'PENDING' || item.evaluateStatus === 'PROCESSING';
+              const isLive = item.status === 'IN_PROGRESS' || item.status === 'PAUSED';
               return (
                 <motion.div
                   key={item.id}
@@ -517,7 +518,16 @@ export default function InterviewHubPage() {
                     if (item.type === 'text') {
                       navigate(`/interviews/${item.id}`);
                     } else if (item.voiceSessionId) {
-                      navigate(`/voice-interview/${item.voiceSessionId}/evaluation`);
+                      if (isLive) {
+                        navigate(item.type === 'video' ? '/video-interview' : '/voice-interview', {
+                          state: item.type === 'video'
+                            ? { videoSessionId: item.voiceSessionId }
+                            : { voiceSessionId: item.voiceSessionId },
+                        });
+                        return;
+                      }
+
+                      navigate(`/${item.type === 'video' ? 'video' : 'voice'}-interview/${item.voiceSessionId}/evaluation`);
                     }
                   }}
                   className="flex items-center gap-4 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer group"
@@ -526,9 +536,15 @@ export default function InterviewHubPage() {
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                     item.type === 'text'
                       ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                      : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                      : item.type === 'video'
+                        ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'
+                        : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
                   }`}>
-                    {item.type === 'text' ? <FileText className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    {item.type === 'text'
+                      ? <FileText className="w-5 h-5" />
+                      : item.type === 'video'
+                        ? <Video className="w-5 h-5" />
+                        : <Mic className="w-5 h-5" />}
                   </div>
 
                   {/* 信息 */}
@@ -538,9 +554,11 @@ export default function InterviewHubPage() {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                         item.type === 'text'
                           ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                          : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                          : item.type === 'video'
+                            ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400'
+                            : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
                       }`}>
-                        {item.type === 'text' ? '文字' : '语音'}
+                        {item.type === 'text' ? '文字' : item.type === 'video' ? '视频' : '语音'}
                       </span>
                     </div>
                     <div className="flex items-center gap-3 mt-1">

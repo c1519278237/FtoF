@@ -5,6 +5,7 @@ import { request } from './request';
 export interface CreateSessionRequest {
   roleType?: string;
   skillId: string;
+  interviewMode?: 'VOICE' | 'VIDEO';
   difficulty?: string;
   customJdText?: string;
   resumeId?: number;
@@ -20,6 +21,7 @@ export interface CreateSessionRequest {
 export interface SessionResponse {
   sessionId: number;
   roleType: string;
+  interviewMode?: 'VOICE' | 'VIDEO';
   currentPhase: string;
   status: string;
   startTime: string;
@@ -114,6 +116,7 @@ export interface EvaluationStatusResponse {
 export interface SessionMeta {
   sessionId: number;
   roleType: string;
+  interviewMode?: 'VOICE' | 'VIDEO';
   status: string;
   currentPhase: string;
   createdAt: string;

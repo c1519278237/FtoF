@@ -25,13 +25,14 @@ import {
   Trash2,
   TrendingUp,
   Users,
+  Video,
 } from 'lucide-react';
 
-type InterviewType = 'all' | 'text' | 'voice';
+type InterviewType = 'all' | 'text' | 'voice' | 'video';
 
 interface UnifiedInterviewItem {
   id: string;
-  type: 'text' | 'voice';
+  type: 'text' | 'voice' | 'video';
   title: string;
   sessionId: string;
   status: string;
@@ -42,12 +43,13 @@ interface UnifiedInterviewItem {
   actualDuration?: number;
   createdAt: string;
   resumeId?: number;
-  voiceSessionId?: number;
+  mediaSessionId?: number;
 }
 
 interface InterviewStats {
   totalCount: number;
   completedCount: number;
+  videoCount: number;
   averageScore: number;
 }
 
@@ -132,7 +134,15 @@ function StatCard({
   );
 }
 
-function TypeBadge({ type }: { type: 'text' | 'voice' }) {
+function TypeBadge({ type }: { type: 'text' | 'voice' | 'video' }) {
+  if (type === 'video') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400 rounded-full text-xs font-medium">
+        <Video className="w-3 h-3" />
+        视频
+      </span>
+    );
+  }
   if (type === 'voice') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full text-xs font-medium">
@@ -215,12 +225,14 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
       const newStats = {
         totalCount: all.length,
         completedCount: evaluated.length,
+        videoCount: all.filter(i => i.type === 'video').length,
         averageScore: evaluated.length > 0 ? Math.round(totalScore / evaluated.length) : 0,
       };
       setStats(prev => {
         if (isPolling && prev &&
             prev.totalCount === newStats.totalCount &&
             prev.completedCount === newStats.completedCount &&
+            prev.videoCount === newStats.videoCount &&
             prev.averageScore === newStats.averageScore) return prev;
         return newStats;
       });
@@ -258,8 +270,8 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
     try {
       const sessions = await voiceInterviewApi.getAllSessions();
       return sessions.map((session: SessionMeta) => ({
-        id: `voice-${session.sessionId}`,
-        type: 'voice' as const,
+        id: `${session.interviewMode === 'VIDEO' ? 'video' : 'voice'}-${session.sessionId}`,
+        type: session.interviewMode === 'VIDEO' ? 'video' as const : 'voice' as const,
         title: session.roleType,
         sessionId: String(session.sessionId),
         status: session.status,
@@ -268,7 +280,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
         overallScore: session.overallScore ?? null,
         actualDuration: session.actualDuration,
         createdAt: session.createdAt,
-        voiceSessionId: session.sessionId,
+        mediaSessionId: session.sessionId,
       }));
     } catch {
       return [];
@@ -301,12 +313,19 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
   const handleRowClick = (item: UnifiedInterviewItem) => {
     if (item.type === 'text') {
       onViewInterview(item.sessionId, item.resumeId);
-    } else if (item.voiceSessionId) {
+    } else if (item.mediaSessionId) {
       const isLive = isLiveStatus(item.status);
       if (isLive) {
-        navigate('/voice-interview', { state: { voiceSessionId: item.voiceSessionId } });
+        navigate(
+          item.type === 'video' ? '/video-interview' : '/voice-interview',
+          {
+            state: item.type === 'video'
+              ? { videoSessionId: item.mediaSessionId }
+              : { voiceSessionId: item.mediaSessionId },
+          }
+        );
       } else {
-        navigate(`/voice-interview/${item.voiceSessionId}/evaluation`);
+        navigate(`/${item.type === 'video' ? 'video' : 'voice'}-interview/${item.mediaSessionId}/evaluation`);
       }
     }
   };
@@ -320,8 +339,8 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
     if (!deleteItem) return;
     setDeletingSessionId(deleteItem.sessionId);
     try {
-      if (deleteItem.type === 'voice' && deleteItem.voiceSessionId) {
-        await voiceInterviewApi.deleteSession(deleteItem.voiceSessionId);
+      if ((deleteItem.type === 'voice' || deleteItem.type === 'video') && deleteItem.mediaSessionId) {
+        await voiceInterviewApi.deleteSession(deleteItem.mediaSessionId);
       } else {
         await historyApi.deleteInterview(deleteItem.sessionId);
       }
@@ -402,9 +421,10 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
           <StatCard icon={Users} label="面试总数" value={stats.totalCount} color="bg-primary-500" />
           <StatCard icon={CheckCircle} label="已完成" value={stats.completedCount} color="bg-emerald-500" />
+          <StatCard icon={Video} label="视频场次" value={stats.videoCount} color="bg-rose-500" />
           <StatCard icon={TrendingUp} label="平均分数" value={stats.averageScore} suffix="分" color="bg-indigo-500" />
         </div>
       )}
@@ -415,6 +435,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
           { key: 'all', label: '全部' },
           { key: 'text', label: '文字面试' },
           { key: 'voice', label: '语音面试' },
+          { key: 'video', label: '视频面试' },
         ] as const).map(tab => (
           <button
             key={tab.key}
@@ -488,6 +509,8 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
                       <div className="flex items-center gap-3">
                         {item.type === 'text' ? (
                           <FileText className="w-5 h-5 text-slate-400" />
+                        ) : item.type === 'video' ? (
+                          <Video className="w-5 h-5 text-rose-400" />
                         ) : (
                           <Mic className="w-5 h-5 text-purple-400" />
                         )}
@@ -529,7 +552,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-sm">
                           {item.totalQuestions} 题
                         </span>
-                      ) : item.type === 'voice' ? (
+                      ) : item.type === 'voice' || item.type === 'video' ? (
                         <span className="text-sm text-slate-500 dark:text-slate-400">
                           {formatDuration(item.actualDuration)}
                         </span>
@@ -551,9 +574,19 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
                             <PlayCircle className="w-4 h-4" />
                           </button>
                         )}
-                        {item.type === 'voice' && isLiveStatus(item.status) && item.voiceSessionId && (
+                        {(item.type === 'voice' || item.type === 'video') && isLiveStatus(item.status) && item.mediaSessionId && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); navigate('/voice-interview', { state: { voiceSessionId: item.voiceSessionId } }); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(
+                                item.type === 'video' ? '/video-interview' : '/voice-interview',
+                                {
+                                  state: item.type === 'video'
+                                    ? { videoSessionId: item.mediaSessionId }
+                                    : { voiceSessionId: item.mediaSessionId },
+                                }
+                              );
+                            }}
                             className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
                             title="继续面试"
                           >

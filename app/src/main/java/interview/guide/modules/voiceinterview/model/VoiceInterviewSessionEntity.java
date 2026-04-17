@@ -62,6 +62,10 @@ public class VoiceInterviewSessionEntity {
     @Builder.Default
     private String llmProvider = "dashscope";
 
+    @Column(name = "interview_mode", length = 16)
+    @Builder.Default
+    private String interviewMode = "VOICE";
+
     @Column(name = "live_evaluation_enabled")
     @Builder.Default
     private Boolean liveEvaluationEnabled = false;

@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 public class SessionResponseDTO {
     private Long sessionId;
     private String roleType;
+    private String interviewMode;
     private String currentPhase;
     private String status;
     private LocalDateTime startTime;

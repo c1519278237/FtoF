@@ -405,6 +405,7 @@ export default function VoiceInterviewPage() {
     try {
       const session = await voiceInterviewApi.createSession({
         skillId: config.skillId,
+        interviewMode: 'VOICE',
         difficulty: config.difficulty,
         introEnabled: false,
         techEnabled: config.techEnabled,

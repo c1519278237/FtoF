@@ -23,6 +23,7 @@ interface VideoInterviewEntryState {
     resumeId?: number;
     llmProvider?: string;
   };
+  videoSessionId?: number;
 }
 
 export default function VideoInterviewPage() {
@@ -30,6 +31,7 @@ export default function VideoInterviewPage() {
   const location = useLocation();
   const entryState = (location.state as VideoInterviewEntryState | null) || {};
   const presetVideoConfig = entryState.videoConfig;
+  const resumeSessionId = entryState.videoSessionId;
   const queryParams = new URLSearchParams(location.search);
   const urlSkillId = queryParams.get('skillId') || undefined;
   const effectiveSkillId = presetVideoConfig?.skillId ?? urlSkillId ?? 'java-backend';
@@ -288,10 +290,10 @@ export default function VideoInterviewPage() {
   }, []);
 
   useEffect(() => {
-    if (presetVideoConfig && cameraState === 'idle') {
+    if ((presetVideoConfig || resumeSessionId) && cameraState === 'idle') {
       startCamera().catch(() => {});
     }
-  }, [cameraState, presetVideoConfig, startCamera]);
+  }, [cameraState, presetVideoConfig, resumeSessionId, startCamera]);
 
   useEffect(() => {
     return () => {
@@ -511,6 +513,7 @@ export default function VideoInterviewPage() {
     try {
       const session = await voiceInterviewApi.createSession({
         skillId: config.skillId,
+        interviewMode: 'VIDEO',
         difficulty: config.difficulty,
         introEnabled: false,
         techEnabled: true,
@@ -539,14 +542,62 @@ export default function VideoInterviewPage() {
     }
   }, [clearPendingEvaluationRefresh, connectWithHandlers, resolveWebSocketUrl]);
 
+  const handleResumeSession = useCallback(async (id: number) => {
+    setError(null);
+    setConnectionStatus('connecting');
+    clearPendingEvaluationRefresh();
+    liveEvaluationAwaitingTurnRef.current = false;
+
+    try {
+      const [session, history] = await Promise.all([
+        voiceInterviewApi.resumeSession(id),
+        voiceInterviewApi.getMessages(id),
+      ]);
+
+      setLiveEvaluation(null);
+      setLiveEvaluationLoading(true);
+      setLiveEvaluationRefreshing(false);
+      setSessionId(session.sessionId);
+      setCurrentPhase(session.currentPhase);
+      setTemplateName(session.roleType || '');
+
+      const restored = history.flatMap(msg => {
+        const items: { role: 'user' | 'ai'; text: string; id: string }[] = [];
+        if (msg.userRecognizedText?.trim()) {
+          items.push({ role: 'user', text: msg.userRecognizedText.trim(), id: `user-${msg.id}` });
+        }
+        if (msg.aiGeneratedText?.trim()) {
+          items.push({ role: 'ai', text: msg.aiGeneratedText.trim(), id: `ai-${msg.id}` });
+        }
+        return items;
+      });
+
+      setMessages(restored.filter((item, index, arr) => {
+        if (index === 0) return true;
+        const prev = arr[index - 1];
+        return !(prev.role === item.role && prev.text.trim() === item.text.trim());
+      }));
+
+      const wsUrl = resolveWebSocketUrl(session.sessionId, session.webSocketUrl);
+      connectWithHandlers(session.sessionId, wsUrl);
+    } catch (resumeError) {
+      setError(resumeError instanceof Error ? resumeError.message : '恢复视频面试失败');
+      setConnectionStatus('disconnected');
+      setLiveEvaluationLoading(false);
+    }
+  }, [clearPendingEvaluationRefresh, connectWithHandlers, resolveWebSocketUrl]);
+
   useEffect(() => {
     if (autoStartRef.current) return;
 
     if (presetVideoConfig) {
       autoStartRef.current = true;
       handlePhaseConfig(presetVideoConfig);
+    } else if (resumeSessionId) {
+      autoStartRef.current = true;
+      handleResumeSession(resumeSessionId);
     }
-  }, [handlePhaseConfig, presetVideoConfig]);
+  }, [handlePhaseConfig, handleResumeSession, presetVideoConfig, resumeSessionId]);
 
   const handleAudioData = (audioData: string) => {
     if (wsRef.current && wsRef.current.isConnected()) {
@@ -591,7 +642,7 @@ export default function VideoInterviewPage() {
 
   const canSubmit = isRecording && !!userText.trim() && !isAiSpeaking && !isSubmitting && connectionStatus === 'connected';
 
-  if (!presetVideoConfig) {
+  if (!presetVideoConfig && !resumeSessionId) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center p-6">
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm p-8 text-center max-w-md w-full">

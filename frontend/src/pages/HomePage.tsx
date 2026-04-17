@@ -13,6 +13,7 @@ import {
   Search,
   Sparkles,
   Upload,
+  Video,
   Workflow,
 } from 'lucide-react';
 import {historyApi, type ResumeListItem, type ResumeStats} from '../api/history';
@@ -33,6 +34,7 @@ interface DashboardData {
   skillsCount: number;
   textSessionCount: number;
   voiceSessionCount: number;
+  videoSessionCount: number;
 }
 
 interface RecentInterviewItem {
@@ -41,7 +43,7 @@ interface RecentInterviewItem {
   score: number | null;
   status: string;
   title: string;
-  type: 'text' | 'voice';
+  type: 'text' | 'voice' | 'video';
 }
 
 interface ActionCardProps {
@@ -120,6 +122,23 @@ function getInterviewStatusLabel(item: RecentInterviewItem): string {
   return '等待开始';
 }
 
+function getVideoInterviewStatusLabel(status: string): string {
+  if (status === 'FAILED') return '视频评估失败';
+  if (status === 'PROCESSING') return '视频评估中';
+  if (status === 'PENDING') return '视频待评估';
+  if (status === 'EVALUATED') return '视频报告已生成';
+  if (status === 'COMPLETED') return '视频作答完成';
+  if (status === 'PAUSED') return '视频已暂停';
+  if (status === 'IN_PROGRESS') return '视频面试中';
+  return '视频待开始';
+}
+
+function getInterviewTypeLabel(type: RecentInterviewItem['type']): string {
+  if (type === 'text') return '文字面试';
+  if (type === 'video') return '视频面试';
+  return '语音面试';
+}
+
 function buildRecentInterviews(
   textSessions: TextSessionMeta[],
   voiceSessions: SessionMeta[],
@@ -136,11 +155,11 @@ function buildRecentInterviews(
 
   const voiceItems: RecentInterviewItem[] = voiceSessions.map((session) => ({
     createdAt: session.createdAt,
-    id: `voice-${session.sessionId}`,
-    score: null,
+    id: `${session.interviewMode === 'VIDEO' ? 'video' : 'voice'}-${session.sessionId}`,
+    score: session.overallScore ?? null,
     status: session.evaluateStatus ?? session.status,
-    title: session.roleType || '语音模拟面试',
-    type: 'voice',
+    title: session.roleType || (session.interviewMode === 'VIDEO' ? '视频模拟面试' : '语音模拟面试'),
+    type: session.interviewMode === 'VIDEO' ? 'video' : 'voice',
   }));
 
   return [...textItems, ...voiceItems]
@@ -241,7 +260,8 @@ export default function HomePage() {
             : 0,
           skillsCount: skills.length,
           textSessionCount: textSessions.length,
-          voiceSessionCount: voiceSessions.length,
+          voiceSessionCount: voiceSessions.filter((session) => session.interviewMode !== 'VIDEO').length,
+          videoSessionCount: voiceSessions.filter((session) => session.interviewMode === 'VIDEO').length,
         };
 
         startTransition(() => {
@@ -272,7 +292,7 @@ export default function HomePage() {
   const pendingResumeCount = dashboard?.pendingResumeCount ?? 0;
   const suggestedAction = stats.totalCount === 0
     ? '先上传一份简历，系统会自动生成能力画像和模拟面试入口。'
-    : dashboard && dashboard.textSessionCount + dashboard.voiceSessionCount === 0
+    : dashboard && dashboard.textSessionCount + dashboard.voiceSessionCount + dashboard.videoSessionCount === 0
       ? '你的资料已经准备好，下一步建议直接发起一场模拟面试。'
       : knowledgeStats.totalCount === 0
         ? '可以补充岗位资料或题库文档，让问答和面试更贴近目标岗位。'
@@ -343,9 +363,9 @@ export default function HomePage() {
                 <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-4 backdrop-blur">
                   <p className="text-sm text-slate-300">模拟面试</p>
                   <p className="mt-2 text-2xl font-semibold">
-                    {dashboard ? dashboard.textSessionCount + dashboard.voiceSessionCount : 0}
+                    {dashboard ? dashboard.textSessionCount + dashboard.voiceSessionCount + dashboard.videoSessionCount : 0}
                   </p>
-                  <p className="mt-1 text-xs text-slate-400">文本与语音实战总场次</p>
+                  <p className="mt-1 text-xs text-slate-400">文本、语音与视频总场次</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-4 backdrop-blur">
                   <p className="text-sm text-slate-300">知识文档</p>
@@ -366,7 +386,7 @@ export default function HomePage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
-                    Command Center
+                    训练中枢
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
                     训练节奏
@@ -432,7 +452,8 @@ export default function HomePage() {
           </motion.div>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard accent="bg-gradient-to-br from-rose-500 to-orange-500" icon={Video} label="视频面试" value={dashboard?.videoSessionCount ?? 0} />
           <StatCard accent="bg-gradient-to-br from-slate-950 to-slate-700" icon={Upload} label="简历总数" value={stats.totalCount} />
           <StatCard accent="bg-gradient-to-br from-fuchsia-500 to-rose-500" icon={MessageSquare} label="文本面试" value={dashboard?.textSessionCount ?? 0} />
           <StatCard accent="bg-gradient-to-br from-cyan-500 to-blue-500" icon={Mic} label="语音面试" value={dashboard?.voiceSessionCount ?? 0} />
@@ -449,7 +470,7 @@ export default function HomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                    Quick Actions
+                    快捷入口
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
                     你可以从这里开始
@@ -495,7 +516,7 @@ export default function HomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                    Recent Sessions
+                    最近面试
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
                     最近面试动态
@@ -523,10 +544,14 @@ export default function HomePage() {
                         <div className={`mt-0.5 flex h-12 w-12 items-center justify-center rounded-2xl ${
                           item.type === 'text'
                             ? 'bg-fuchsia-500 text-white'
-                            : 'bg-cyan-500 text-white'
+                            : item.type === 'video'
+                              ? 'bg-rose-500 text-white'
+                              : 'bg-cyan-500 text-white'
                         }`}>
                           {item.type === 'text' ? (
                             <MessageSquare className="h-5 w-5" />
+                          ) : item.type === 'video' ? (
+                            <Video className="h-5 w-5" />
                           ) : (
                             <Mic className="h-5 w-5" />
                           )}
@@ -536,10 +561,10 @@ export default function HomePage() {
                             {item.title}
                           </p>
                           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            {getInterviewStatusLabel(item)}
+                            {item.type === 'video' ? getVideoInterviewStatusLabel(item.status) : getInterviewStatusLabel(item)}
                           </p>
                           <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
-                            {item.type === 'text' ? 'Text Session' : 'Voice Session'}
+                            {getInterviewTypeLabel(item.type)}
                           </p>
                         </div>
                       </div>
@@ -581,7 +606,7 @@ export default function HomePage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                    Resume Feed
+                    简历动态
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
                     最新简历状态
@@ -656,7 +681,7 @@ export default function HomePage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    Practice Signal
+                    训练快照
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950 dark:text-white">
                     首页快照

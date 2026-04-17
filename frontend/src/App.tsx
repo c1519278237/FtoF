@@ -203,6 +203,7 @@ function App() {
 
             {/* 语音面试评估报告 */}
             <Route path="voice-interview/:sessionId/evaluation" element={<VoiceInterviewEvaluationPage />} />
+            <Route path="video-interview/:sessionId/evaluation" element={<VoiceInterviewEvaluationPage />} />
 
             {/* 知识库管理 */}
             <Route path="knowledgebase" element={<KnowledgeBaseManagePageWrapper />} />

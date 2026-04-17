@@ -68,6 +68,7 @@ public class VoiceInterviewService {
         String effectiveLlmProvider = (request.getLlmProvider() != null && !request.getLlmProvider().isBlank())
             ? request.getLlmProvider()
             : properties.getLlmProvider();
+        String effectiveInterviewMode = normalizeInterviewMode(request.getInterviewMode());
 
         VoiceInterviewSessionEntity session = VoiceInterviewSessionEntity.builder()
                 .userId(DEFAULT_USER_ID)
@@ -81,6 +82,7 @@ public class VoiceInterviewService {
                 .projectEnabled(request.getProjectEnabled())
                 .hrEnabled(request.getHrEnabled())
                 .llmProvider(effectiveLlmProvider)
+                .interviewMode(effectiveInterviewMode)
                 .liveEvaluationEnabled(Boolean.TRUE.equals(request.getLiveEvaluationEnabled()))
                 .plannedDuration(request.getPlannedDuration())
                 .currentPhase(determineFirstPhase(request))
@@ -449,6 +451,7 @@ public class VoiceInterviewService {
             .map(session -> SessionMetaDTO.builder()
                 .sessionId(session.getId())
                 .roleType(session.getRoleType())
+                .interviewMode(resolveInterviewMode(session))
                 .status(session.getStatus().name())
                 .currentPhase(session.getCurrentPhase().name())
                 .createdAt(session.getCreatedAt())
@@ -583,6 +586,7 @@ public class VoiceInterviewService {
         return SessionResponseDTO.builder()
                 .sessionId(session.getId())
                 .roleType(session.getRoleType())
+                .interviewMode(resolveInterviewMode(session))
                 .currentPhase(session.getCurrentPhase().name())
                 .status(session.getStatus().name())
                 .startTime(session.getStartTime())
@@ -639,6 +643,23 @@ public class VoiceInterviewService {
         }
         String normalized = text.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String resolveInterviewMode(VoiceInterviewSessionEntity session) {
+        if (session == null) {
+            return "VOICE";
+        }
+        if (session.getInterviewMode() != null && !session.getInterviewMode().isBlank()) {
+            return normalizeInterviewMode(session.getInterviewMode());
+        }
+        return Boolean.TRUE.equals(session.getLiveEvaluationEnabled()) ? "VIDEO" : "VOICE";
+    }
+
+    private String normalizeInterviewMode(String interviewMode) {
+        if (interviewMode == null || interviewMode.isBlank()) {
+            return "VOICE";
+        }
+        return "VIDEO".equalsIgnoreCase(interviewMode.trim()) ? "VIDEO" : "VOICE";
     }
 
     /**

@@ -32,4 +32,7 @@ public class CreateSessionRequest {
 
     @Builder.Default
     private Boolean liveEvaluationEnabled = false;
+
+    @Builder.Default
+    private String interviewMode = "VOICE";
 }

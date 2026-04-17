@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 public class SessionMetaDTO {
     private Long sessionId;
     private String roleType;
+    private String interviewMode;
     private String status;
     private String currentPhase;
     private LocalDateTime createdAt;
