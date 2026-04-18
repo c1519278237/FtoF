@@ -76,7 +76,7 @@ export interface LiveEvaluatorScore {
 export interface LiveDimensionScore {
   key: string;
   label: string;
-  score: number;
+  score: number | null;
   rationale: string;
 }
 
@@ -92,7 +92,7 @@ export interface CandidateProfile {
 export interface LiveEvaluationSnapshot {
   sessionId: number;
   turnCount: number;
-  overallScore: number;
+  overallScore: number | null;
   confidence: number;
   summary: string;
   evaluators: LiveEvaluatorScore[];

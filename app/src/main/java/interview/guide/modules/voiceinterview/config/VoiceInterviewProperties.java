@@ -165,7 +165,7 @@ public class VoiceInterviewProperties {
         private int minTurns = 1;
         private int contextTurns = 6;
         private int maxParallelEvaluators = 6;
-        private long evaluatorTimeoutMs = 3500;
+        private long evaluatorTimeoutMs = 20000;
         private List<EvaluatorConfig> evaluators = new ArrayList<>(List.of(
             new EvaluatorConfig("tech_depth", "技术深挖官", "技术正确性与实现细节",
                 "重点判断回答是否准确，是否理解底层原理，以及是否具备工程落地细节", null),

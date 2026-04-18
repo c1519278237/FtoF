@@ -52,6 +52,12 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         "classpath:prompts/voice-interview/live-evaluation-system.st";
     private static final String USER_PROMPT_PATH =
         "classpath:prompts/voice-interview/live-evaluation-user.st";
+    private static final String PENDING_DIMENSION_RATIONALE =
+        "本轮评分仍在并发生成中，先等待评审官返回稳定结论";
+    private static final String PENDING_SUMMARY_WITH_PREVIOUS =
+        "本轮作答已收到，但六位评审官暂未在刷新窗口内返回稳定新结论，当前先沿用上一轮画像。";
+    private static final String PENDING_SUMMARY_WITHOUT_PREVIOUS =
+        "本轮作答已收到，六位评审官正在并发评估中，稍后会滚动刷新分数与用户画像。";
 
     private static final List<DimensionDefinition> DIMENSIONS = List.of(
         new DimensionDefinition("communication_clarity", "表达清晰度"),
@@ -187,6 +193,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         Semaphore parallelism,
         long timeoutMs
     ) {
+        long startNanos = System.nanoTime();
         EvaluatorRuntimeResult timeoutFallback =
             EvaluatorRuntimeResult.failureWithMessage(
                 evaluator,
@@ -194,6 +201,14 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
                 "本轮评分超时，暂未完成分析",
                 "这个评审官没有在本次实时刷新窗口内返回结果"
             );
+
+        log.info(
+            "Live evaluator started: sessionId={}, evaluatorId={}, provider={}, timeoutMs={}",
+            sessionId,
+            evaluator.getId(),
+            providerId,
+            timeoutMs
+        );
 
         return CompletableFuture.supplyAsync(() -> {
             boolean permitAcquired = false;
@@ -210,18 +225,29 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
                     dimensionCatalog,
                     turnCount
                 );
+                EvaluatorSnapshotDTO normalized = normalizeSnapshot(snapshot);
+                log.info(
+                    "Live evaluator succeeded: sessionId={}, evaluatorId={}, provider={}, elapsedMs={}, overallScore={}, confidence={}",
+                    sessionId,
+                    evaluator.getId(),
+                    providerId,
+                    elapsedMillis(startNanos),
+                    normalized.overallScore(),
+                    normalized.confidence()
+                );
                 return EvaluatorRuntimeResult.success(
                     evaluator,
                     providerId,
-                    normalizeSnapshot(snapshot)
+                    normalized
                 );
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.warn(
-                    "Live evaluator interrupted: sessionId={}, evaluatorId={}, provider={}",
+                    "Live evaluator interrupted: sessionId={}, evaluatorId={}, provider={}, elapsedMs={}",
                     sessionId,
                     evaluator.getId(),
-                    providerId
+                    providerId,
+                    elapsedMillis(startNanos)
                 );
                 return EvaluatorRuntimeResult.failureWithMessage(
                     evaluator,
@@ -231,10 +257,11 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
                 );
             } catch (Exception e) {
                 log.warn(
-                    "Live evaluator failed: sessionId={}, evaluatorId={}, provider={}, error={}",
+                    "Live evaluator failed: sessionId={}, evaluatorId={}, provider={}, elapsedMs={}, error={}",
                     sessionId,
                     evaluator.getId(),
                     providerId,
+                    elapsedMillis(startNanos),
                     e.getMessage()
                 );
                 return EvaluatorRuntimeResult.failure(evaluator, providerId);
@@ -245,12 +272,26 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
             }
         }, evaluatorExecutor)
             .completeOnTimeout(timeoutFallback, timeoutMs, TimeUnit.MILLISECONDS)
+            .thenApply(result -> {
+                if (result == timeoutFallback) {
+                    log.warn(
+                        "Live evaluator timed out: sessionId={}, evaluatorId={}, provider={}, elapsedMs={}, timeoutMs={}",
+                        sessionId,
+                        evaluator.getId(),
+                        providerId,
+                        elapsedMillis(startNanos),
+                        timeoutMs
+                    );
+                }
+                return result;
+            })
             .exceptionally(error -> {
                 log.warn(
-                    "Live evaluator completed exceptionally: sessionId={}, evaluatorId={}, provider={}, error={}",
+                    "Live evaluator completed exceptionally: sessionId={}, evaluatorId={}, provider={}, elapsedMs={}, error={}",
                     sessionId,
                     evaluator.getId(),
                     providerId,
+                    elapsedMillis(startNanos),
                     error.getMessage()
                 );
                 return EvaluatorRuntimeResult.failure(evaluator, providerId);
@@ -420,7 +461,8 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         int turnCount,
         List<EvaluatorRuntimeResult> runtimeResults
     ) {
-        VoiceInterviewLiveEvaluationDTO previous = getLiveEvaluation(sessionId);
+        VoiceInterviewLiveEvaluationDTO previous = sanitizePendingSnapshot(getLiveEvaluation(sessionId));
+        boolean hasStablePrevious = hasStableSnapshot(previous);
 
         List<EvaluatorScoreDTO> evaluators = runtimeResults.stream()
             .map(result -> new EvaluatorScoreDTO(
@@ -443,19 +485,19 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
             .toList();
 
         List<DimensionScoreDTO> dimensions =
-            previous != null && previous.dimensions() != null && !previous.dimensions().isEmpty()
+            hasStablePrevious && previous.dimensions() != null && !previous.dimensions().isEmpty()
                 ? previous.dimensions()
                 : DIMENSIONS.stream()
                     .map(definition -> new DimensionScoreDTO(
                         definition.key(),
                         definition.label(),
-                        0,
-                        "本轮评分仍在并发生成中，先等待评审官返回稳定结论"
+                        null,
+                        PENDING_DIMENSION_RATIONALE
                     ))
                     .toList();
 
         CandidateProfileDTO profile =
-            previous != null && previous.candidateProfile() != null
+            hasStablePrevious && previous.candidateProfile() != null
                 ? previous.candidateProfile()
                 : new CandidateProfileDTO(
                     "mid",
@@ -466,11 +508,11 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
                     List.of("继续完成下一轮作答，系统会滚动刷新画像")
                 );
 
-        int overallScore = previous != null ? defaultInt(previous.overallScore()) : 0;
-        int confidence = previous != null ? defaultInt(previous.confidence()) : 0;
-        String summary = previous != null
-            ? "本轮作答已收到，但六位评审官暂未在刷新窗口内返回稳定新结论，当前先沿用上一轮画像。"
-            : "本轮作答已收到，六位评审官正在并发评估中，稍后会滚动刷新分数与用户画像。";
+        Integer overallScore = hasStablePrevious ? previous.overallScore() : null;
+        int confidence = hasStablePrevious ? defaultInt(previous.confidence()) : 0;
+        String summary = hasStablePrevious
+            ? PENDING_SUMMARY_WITH_PREVIOUS
+            : PENDING_SUMMARY_WITHOUT_PREVIOUS;
 
         return new VoiceInterviewLiveEvaluationDTO(
             sessionId,
@@ -630,7 +672,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
                 CandidateProfileDTO.class
             );
 
-            return new VoiceInterviewLiveEvaluationDTO(
+            return sanitizePendingSnapshot(new VoiceInterviewLiveEvaluationDTO(
                 entity.getSessionId(),
                 entity.getTurnCount(),
                 entity.getOverallScore(),
@@ -640,7 +682,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
                 dimensions,
                 profile,
                 entity.getUpdatedAt()
-            );
+            ));
         } catch (Exception e) {
             log.error("Failed to deserialize live evaluation snapshot: sessionId={}", entity.getSessionId(), e);
             throw new BusinessException(
@@ -702,6 +744,55 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         );
     }
 
+    private VoiceInterviewLiveEvaluationDTO sanitizePendingSnapshot(VoiceInterviewLiveEvaluationDTO dto) {
+        if (dto == null || !isPendingSnapshot(dto)) {
+            return dto;
+        }
+
+        List<DimensionScoreDTO> sanitizedDimensions = dto.dimensions() == null
+            ? List.of()
+            : dto.dimensions().stream()
+                .map(dimension -> new DimensionScoreDTO(
+                    dimension.key(),
+                    dimension.label(),
+                    null,
+                    defaultText(dimension.rationale(), PENDING_DIMENSION_RATIONALE)
+                ))
+                .toList();
+
+        return new VoiceInterviewLiveEvaluationDTO(
+            dto.sessionId(),
+            dto.turnCount(),
+            null,
+            0,
+            defaultText(dto.summary(), PENDING_SUMMARY_WITHOUT_PREVIOUS),
+            dto.evaluators(),
+            sanitizedDimensions,
+            dto.candidateProfile(),
+            dto.updatedAt()
+        );
+    }
+
+    private boolean hasStableSnapshot(VoiceInterviewLiveEvaluationDTO dto) {
+        return dto != null && !isPendingSnapshot(dto);
+    }
+
+    private boolean isPendingSnapshot(VoiceInterviewLiveEvaluationDTO dto) {
+        boolean pendingSummary = PENDING_SUMMARY_WITH_PREVIOUS.equals(dto.summary())
+            || PENDING_SUMMARY_WITHOUT_PREVIOUS.equals(dto.summary());
+        boolean zeroConfidence = defaultInt(dto.confidence()) == 0;
+        boolean noEvaluatorScores = dto.evaluators() == null
+            || dto.evaluators().stream().allMatch(evaluator -> evaluator.score() == null);
+        boolean noStableDimensions = dto.dimensions() == null
+            || dto.dimensions().stream().allMatch(dimension ->
+                dimension.score() == null
+                    || (dimension.score() == 0
+                    && PENDING_DIMENSION_RATIONALE.equals(defaultText(dimension.rationale(), "")))
+            );
+
+        return pendingSummary && zeroConfidence && noEvaluatorScores && noStableDimensions;
+    }
+
     private String resolveProviderId(
         VoiceInterviewProperties.EvaluatorConfig evaluator,
         VoiceInterviewSessionEntity session
@@ -729,6 +820,10 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
             totalWeight += safeWeight;
         }
         return totalWeight == 0 ? 0 : (int) Math.round((double) totalScore / totalWeight);
+    }
+
+    private static long elapsedMillis(long startNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
     }
 
     private static int clamp(Integer value, int min, int max, int fallback) {

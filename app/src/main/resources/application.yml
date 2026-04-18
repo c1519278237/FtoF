@@ -243,6 +243,14 @@ app:
     # 语音面试单轮面试官回复最大长度（字符）
     ai-question-max-chars: ${APP_VOICE_AI_QUESTION_MAX_CHARS:120}
 
+    # Live evaluation
+    live-evaluation:
+      enabled: ${APP_VOICE_LIVE_EVALUATION_ENABLED:true}
+      min-turns: ${APP_VOICE_LIVE_EVALUATION_MIN_TURNS:1}
+      context-turns: ${APP_VOICE_LIVE_EVALUATION_CONTEXT_TURNS:6}
+      max-parallel-evaluators: ${APP_VOICE_LIVE_EVALUATION_MAX_PARALLEL_EVALUATORS:6}
+      evaluator-timeout-ms: ${APP_VOICE_LIVE_EVALUATION_TIMEOUT_MS:20000}
+
     # Rate limiting
     rate-limit:
       max-per-session: ${APP_VOICE_INTERVIEW_RATE_LIMIT_MAX_PER_SESSION:10}  # messages per second

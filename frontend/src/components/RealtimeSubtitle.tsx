@@ -104,6 +104,7 @@ export default function RealtimeSubtitle({
           {/* Current AI Response (Active) */}
           {shouldShowActiveAi && (
             <InterviewMessageBubble
+              key={`active-ai-${activeAiText}`}
               role="interviewer"
               text={activeAiText}
               highlight
@@ -120,6 +121,7 @@ export default function RealtimeSubtitle({
           {/* Current User Input (Real-time) */}
           {userText && (
             <InterviewMessageBubble
+              key={`active-user-${userText}`}
               role="user"
               text={userText}
               highlight
@@ -131,6 +133,7 @@ export default function RealtimeSubtitle({
           {/* Empty State */}
           {messages.length === 0 && !userText && !aiText && (
             <motion.div
+              key="subtitle-empty"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="h-full flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 py-12"

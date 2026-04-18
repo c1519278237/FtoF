@@ -74,6 +74,9 @@ function EvaluatorCard({ evaluator }: { evaluator: LiveEvaluatorScore }) {
   const [expanded, setExpanded] = useState(false);
   const score = evaluator.score ?? 0;
   const scoreText = evaluator.score == null ? '待评分' : `${evaluator.score}`;
+  const scoreBadgeClass = evaluator.score == null
+    ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+    : getScoreColor(score);
 
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4">
@@ -86,10 +89,8 @@ function EvaluatorCard({ evaluator }: { evaluator: LiveEvaluatorScore }) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className={`px-2.5 py-1 rounded-lg text-sm font-bold ${getScoreColor(score)}`}>
-            <span className={evaluator.score == null ? 'text-slate-500 dark:text-slate-400' : ''}>
-              {scoreText}
-            </span>
+          <div className={`px-2.5 py-1 rounded-lg text-sm font-bold ${scoreBadgeClass}`}>
+            <span>{scoreText}</span>
           </div>
           <button
             type="button"
@@ -132,6 +133,13 @@ function EvaluatorCard({ evaluator }: { evaluator: LiveEvaluatorScore }) {
       )}
     </div>
   );
+}
+
+function renderScoreValue(score: number | null, pendingText: string = '待评分') {
+  if (score == null) {
+    return pendingText;
+  }
+  return `${score}`;
 }
 
 function JudgeSkeletonCard({
@@ -239,6 +247,7 @@ export default function VideoInterviewLiveScorePanel({
 }: VideoInterviewLiveScorePanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [judgesExpanded, setJudgesExpanded] = useState(false);
+  const overallScoreText = renderScoreValue(evaluation?.overallScore ?? null, '生成中');
 
   if (loading && !evaluation) {
     return (
@@ -284,8 +293,14 @@ export default function VideoInterviewLiveScorePanel({
 
           <div className="flex items-start gap-3 flex-shrink-0">
             <div className="text-right">
-              <p className={`text-3xl font-bold ${getScoreTextColor(evaluation.overallScore)}`}>
-                {evaluation.overallScore}
+              <p
+                className={`text-3xl font-bold ${
+                  evaluation.overallScore == null
+                    ? 'text-slate-400 dark:text-slate-500'
+                    : getScoreTextColor(evaluation.overallScore)
+                }`}
+              >
+                {overallScoreText}
               </p>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                 置信度 {evaluation.confidence}% · 已评估 {evaluation.turnCount} 轮
@@ -322,14 +337,26 @@ export default function VideoInterviewLiveScorePanel({
                     <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                       {dimension.label}
                     </span>
-                    <span className={`text-xs font-semibold ${getScoreTextColor(dimension.score)}`}>
-                      {dimension.score}
+                    <span
+                      className={`text-xs font-semibold ${
+                        dimension.score == null
+                          ? 'text-slate-400 dark:text-slate-500'
+                          : getScoreTextColor(dimension.score)
+                      }`}
+                    >
+                      {renderScoreValue(dimension.score)}
                     </span>
                   </div>
                   <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${getScoreProgressColor(dimension.score)}`}
-                      style={{ width: `${Math.max(6, dimension.score)}%` }}
+                      className={`h-full rounded-full ${
+                        dimension.score == null
+                          ? 'bg-slate-300 dark:bg-slate-600'
+                          : getScoreProgressColor(dimension.score)
+                      }`}
+                      style={{
+                        width: `${dimension.score == null ? 12 : Math.max(6, dimension.score)}%`,
+                      }}
                     />
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
