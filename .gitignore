@@ -24,3 +24,8 @@ GEMINI.md
 
 # Playwright MCP
 .playwright-mcp/
+
+# Local Python environment and bytecode for research scripts
+.venv/
+__pycache__/
+*.pyc

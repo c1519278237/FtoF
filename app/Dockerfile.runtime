@@ -1,0 +1,8 @@
+# Build the JAR locally first: .\gradlew.bat :app:bootJar --no-daemon
+# Build context must be app/build/libs (only the packaged application is sent).
+# docker build -f app/Dockerfile.runtime -t interview-guide-master-app app/build/libs
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY app-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]

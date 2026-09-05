@@ -22,12 +22,18 @@ export default defineConfig({
     },
   },
   server: {
-      host: '0.0.0.0',
+    host: '0.0.0.0',
     port: 5173,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:8080',
+        changeOrigin: true,
+        ws: true,
       },
     },
     // 忽略 @ricky0123/vad-web 的 sourcemap 警告

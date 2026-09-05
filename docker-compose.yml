@@ -104,16 +104,16 @@ services:
     depends_on:
       minio:
         condition: service_healthy # 必须等待 MinIO 服务健康（不仅仅是启动）
-    entrypoint: >
-      /bin/sh -c "
-      # 1. 配置 MinIO 客户端别名 (myminio) 连接到 minio 服务
-      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
-      # 2. 创建名为 interview-guide 的存储桶
-      /usr/bin/mc mb myminio/interview-guide;
-      # 3. 设置该存储桶为公共读权限（方便前端直接访问图片等资源）
-      /usr/bin/mc anonymous set public myminio/interview-guide;
-      exit 0;
-      "
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        # 1. 配置 MinIO 客户端别名
+        /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin
+        # 2. 可重复执行，已存在的存储桶保持原有数据
+        /usr/bin/mc mb --ignore-existing myminio/interview-guide
+        # 3. 保持原有公共读策略
+        /usr/bin/mc anonymous set public myminio/interview-guide
 
   # =========================================
   # 5. 后端应用服务 (Spring Boot)
@@ -168,6 +168,12 @@ services:
       APP_INTERVIEW_EVALUATION_BATCH_SIZE: ${APP_INTERVIEW_EVALUATION_BATCH_SIZE:-8}
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/resumes/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
 
   # =========================================
   # 6. 前端应用服务 (Vue/React + Nginx)
@@ -180,9 +186,10 @@ services:
     build: ./frontend
     container_name: interview-frontend
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
 
 # =========================================
 # 定义 Docker 卷 (Volumes)

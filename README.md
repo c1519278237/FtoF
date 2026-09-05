@@ -2,6 +2,9 @@
 
 An AI-assisted interview practice platform with resume analysis, mock interviews, voice interviews, video interview preview, interview scheduling, and knowledge base Q&A.
 
+Windows environment paths, the code map, verified startup commands, and known
+limitations are documented in [PROJECT_GUIDE.md](PROJECT_GUIDE.md).
+
 ## Features
 
 - Resume upload and analysis
@@ -108,6 +111,13 @@ This brings up:
 Frontend default entry:
 
 - `http://localhost`
+
+If port 80 is already occupied, set `FRONTEND_PORT=8088` in `.env` and use
+`http://localhost:8088`. On this machine, port 80 is used by Dify.
+
+The development Compose file shares PostgreSQL, Redis, MinIO, and their data
+volumes with the full stack. Stop the Docker backend before running a local
+backend on port 8080.
 
 ## Publishing Notes
 
