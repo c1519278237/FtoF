@@ -12,6 +12,7 @@ import interview.guide.modules.interview.model.InterviewSessionEntity;
 import interview.guide.modules.interview.repository.InterviewSessionRepository;
 import interview.guide.modules.interview.service.AnswerEvaluationService;
 import interview.guide.modules.interview.service.InterviewPersistenceService;
+import interview.guide.modules.interview.round.InterviewRoundService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.stream.StreamMessageId;
 import org.springframework.ai.chat.client.ChatClient;
@@ -20,6 +21,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -36,6 +38,7 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
     private final InterviewPersistenceService persistenceService;
     private final ObjectMapper objectMapper;
     private final LlmProviderRegistry llmProviderRegistry;
+    private final InterviewRoundService roundService;
 
     public EvaluateStreamConsumer(
         RedisService redisService,
@@ -43,7 +46,8 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
         AnswerEvaluationService evaluationService,
         InterviewPersistenceService persistenceService,
         ObjectMapper objectMapper,
-        LlmProviderRegistry llmProviderRegistry
+        LlmProviderRegistry llmProviderRegistry,
+        InterviewRoundService roundService
     ) {
         super(redisService);
         this.sessionRepository = sessionRepository;
@@ -51,9 +55,10 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
         this.persistenceService = persistenceService;
         this.objectMapper = objectMapper;
         this.llmProviderRegistry = llmProviderRegistry;
+        this.roundService = roundService;
     }
 
-    record EvaluatePayload(String sessionId) {}
+    record EvaluatePayload(String sessionId, String roundCode) {}
 
     @Override
     protected String taskDisplayName() {
@@ -87,7 +92,7 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
             log.warn("消息格式错误，跳过: messageId={}", messageId);
             return null;
         }
-        return new EvaluatePayload(sessionId);
+        return new EvaluatePayload(sessionId, data.get(AsyncTaskStreamConstants.FIELD_ROUND_CODE));
     }
 
     @Override
@@ -97,7 +102,9 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
 
     @Override
     protected void markProcessing(EvaluatePayload payload) {
-        updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.PROCESSING, null);
+        if (payload.roundCode() == null || payload.roundCode().isBlank()) {
+            updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.PROCESSING, null);
+        }
     }
 
     @Override
@@ -129,18 +136,36 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
         ChatClient chatClient = llmProviderRegistry.getChatClientOrDefault(provider);
 
         String resumeText = session.getResume() != null ? session.getResume().getResumeText() : "";
+        if (payload.roundCode() != null && !payload.roundCode().isBlank()) {
+            List<InterviewQuestionDTO> roundQuestions = questions.stream()
+                .filter(question -> payload.roundCode().equals(question.roundCode()))
+                .toList();
+            evaluationService.evaluateRound(chatClient, sessionId, resumeText,
+                payload.roundCode(), roundQuestions);
+            return;
+        }
         InterviewReportDTO report = evaluationService.evaluateInterview(chatClient, sessionId, resumeText, questions);
         persistenceService.saveReport(sessionId, report);
     }
 
     @Override
     protected void markCompleted(EvaluatePayload payload) {
-        updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.COMPLETED, null);
+        if (payload.roundCode() == null || payload.roundCode().isBlank()) {
+            updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.COMPLETED, null);
+        }
     }
 
     @Override
     protected void markFailed(EvaluatePayload payload, String error) {
-        updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.FAILED, error);
+        if (payload.roundCode() == null || payload.roundCode().isBlank()) {
+            updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.FAILED, error);
+            return;
+        }
+        sessionRepository.findBySessionId(payload.sessionId()).ifPresent(session -> {
+            if (session.getPlanId() != null) {
+                roundService.markEvaluationFailed(session.getPlanId(), payload.roundCode(), error);
+            }
+        });
     }
 
     @Override
@@ -151,10 +176,14 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
                 AsyncTaskStreamConstants.FIELD_SESSION_ID, sessionId,
                 AsyncTaskStreamConstants.FIELD_RETRY_COUNT, String.valueOf(retryCount)
             );
+            Map<String, String> roundAwareMessage = new HashMap<>(message);
+            if (payload.roundCode() != null && !payload.roundCode().isBlank()) {
+                roundAwareMessage.put(AsyncTaskStreamConstants.FIELD_ROUND_CODE, payload.roundCode());
+            }
 
             redisService().streamAdd(
                 AsyncTaskStreamConstants.INTERVIEW_EVALUATE_STREAM_KEY,
-                message,
+                roundAwareMessage,
                 AsyncTaskStreamConstants.STREAM_MAX_LEN
             );
             log.info("评估任务已重新入队: sessionId={}, retryCount={}", sessionId, retryCount);

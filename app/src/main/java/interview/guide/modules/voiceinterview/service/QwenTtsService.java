@@ -43,6 +43,10 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class QwenTtsService {
 
+    public QwenTtsService() {
+        this(new VoiceInterviewProperties());
+    }
+
     // Runtime configuration values (loaded from VoiceInterviewProperties; setters kept for tests)
     private String model;
 
@@ -80,12 +84,14 @@ public class QwenTtsService {
      * This method is automatically called by Spring after the service is constructed
      * and all configuration values have been loaded from VoiceInterviewProperties.
      *
-     * @throws IllegalStateException if apiKey is not configured
+     * Missing credentials disable live TTS but do not prevent the rest of the
+     * application from starting. The synthesis path reports the configuration error.
      */
     @PostConstruct
     public void init() {
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException("API key must be configured before initializing QwenTtsService");
+            log.warn("QwenTtsService is disabled because no API key is configured");
+            return;
         }
         log.info("QwenTtsService initialized with model: {}, voice: {}, sampleRate: {}Hz",
                  model, voice, sampleRate);
@@ -108,6 +114,10 @@ public class QwenTtsService {
         // Handle null, empty, or whitespace-only text
         if (text == null || text.trim().isEmpty()) {
             log.debug("Empty or null text provided, returning empty audio array");
+            return new byte[0];
+        }
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            log.warn("Skip TTS synthesis because no API key is configured");
             return new byte[0];
         }
 

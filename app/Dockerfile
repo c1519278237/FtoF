@@ -2,7 +2,7 @@
 # 第一阶段：构建环境 (Builder Stage)
 # 作用：使用包含 JDK 和 Gradle 的完整镜像来编译源代码
 # ==============================================================================
-FROM gradle:8.14-jdk21 AS builder
+FROM eclipse-temurin:21-jdk-jammy AS builder
 # 设置工作目录，后续命令都在这个目录下执行
 WORKDIR /workspace
 
@@ -14,6 +14,9 @@ COPY settings.gradle gradlew ./
 COPY gradle gradle
 COPY app/build.gradle app/
 
+# Windows checkout files may not retain the executable bit inside Linux.
+RUN chmod +x gradlew
+
 # 2. 预下载依赖 (Dependency Resolution)
 # 作用：利用 Docker 缓存层预先下载依赖。只要 gradle 配置不变，这一层就会被缓存。
 #
@@ -24,7 +27,7 @@ COPY app/build.gradle app/
 # || true:
 #   "兜底策略" (Fail-Safe)。即使预下载失败（比如因配置不完整），也不要打断构建。
 #   反正后续的 'bootJar' 步骤会再次检查并下载依赖。
-RUN gradle dependencies --no-daemon || true
+RUN ./gradlew dependencies --no-daemon || true
 
 # 3. 复制源代码
 # 将整个项目代码复制进来。由于上面的步骤已经缓存了依赖，
@@ -34,7 +37,7 @@ COPY . .
 # 4. 执行构建
 # :app:bootJar -> 只构建 app 模块，生成可执行的 JAR 包
 # -x test      -> 跳过单元测试（加快构建速度）
-RUN gradle :app:bootJar --no-daemon -x test
+RUN ./gradlew :app:bootJar --no-daemon -x test
 
 # ==============================================================================
 # 第二阶段：运行环境 (Runtime Stage)

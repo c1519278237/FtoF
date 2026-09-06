@@ -30,6 +30,9 @@ public class VoiceInterviewMessageEntity {
     @Enumerated(EnumType.STRING)
     private VoiceInterviewSessionEntity.InterviewPhase phase;
 
+    @Column(name = "round_code", length = 32)
+    private String roundCode;
+
     @Column(name = "user_recognized_text", columnDefinition = "TEXT")
     private String userRecognizedText;
 

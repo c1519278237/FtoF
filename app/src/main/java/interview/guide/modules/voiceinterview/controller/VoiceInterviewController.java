@@ -15,6 +15,8 @@ import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewEvaluationService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewLiveEvaluationService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewService;
+import interview.guide.modules.interview.round.InterviewRoundDTO;
+import interview.guide.modules.interview.round.InterviewRoundService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +53,7 @@ public class VoiceInterviewController {
     private final VoiceInterviewService voiceInterviewService;
     private final VoiceInterviewEvaluationService evaluationService;
     private final VoiceInterviewLiveEvaluationService liveEvaluationService;
+    private final InterviewRoundService roundService;
 
     /**
      * Create a new voice interview session
@@ -78,6 +81,11 @@ public class VoiceInterviewController {
         }
         applyWebSocketUrl(session, httpServletRequest);
         return Result.success(session);
+    }
+
+    @GetMapping("/sessions/{sessionId}/rounds")
+    public Result<List<InterviewRoundDTO>> getRounds(@PathVariable Long sessionId) {
+        return Result.success(roundService.listByVoiceSessionId(sessionId));
     }
 
     /**

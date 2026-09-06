@@ -3,6 +3,7 @@ import type {
   CreateInterviewRequest,
   CurrentQuestionResponse,
   InterviewReport,
+  InterviewRound,
   InterviewSession,
   SubmitAnswerRequest,
   SubmitAnswerResponse
@@ -44,6 +45,10 @@ export const interviewApi = {
    */
   async getSession(sessionId: string): Promise<InterviewSession> {
     return request.get<InterviewSession>(`/api/interview/sessions/${sessionId}`);
+  },
+
+  async getRounds(sessionId: string): Promise<InterviewRound[]> {
+    return request.get<InterviewRound[]>(`/api/interview/sessions/${sessionId}/rounds`);
   },
 
   /**

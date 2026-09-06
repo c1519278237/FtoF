@@ -14,22 +14,29 @@ public record InterviewQuestionDTO(
     Integer score,
     String feedback,
     boolean isFollowUp,
-    Integer parentQuestionIndex
+    Integer parentQuestionIndex,
+    String roundCode
 ) {
     public static InterviewQuestionDTO create(int index, String question, String type, String category) {
-        return new InterviewQuestionDTO(index, question, type, category, null, null, null, null, false, null);
+        return new InterviewQuestionDTO(index, question, type, category, null, null, null, null, false, null, null);
     }
 
     public static InterviewQuestionDTO create(int index, String question, String type, String category,
                                                String topicSummary, boolean isFollowUp, Integer parentQuestionIndex) {
-        return new InterviewQuestionDTO(index, question, type, category, topicSummary, null, null, null, isFollowUp, parentQuestionIndex);
+        return new InterviewQuestionDTO(index, question, type, category, topicSummary, null, null, null, isFollowUp, parentQuestionIndex, null);
     }
 
     public InterviewQuestionDTO withAnswer(String answer) {
-        return new InterviewQuestionDTO(questionIndex, question, type, category, topicSummary, answer, score, feedback, isFollowUp, parentQuestionIndex);
+        return new InterviewQuestionDTO(questionIndex, question, type, category, topicSummary, answer, score, feedback, isFollowUp, parentQuestionIndex, roundCode);
     }
 
     public InterviewQuestionDTO withEvaluation(int score, String feedback) {
-        return new InterviewQuestionDTO(questionIndex, question, type, category, topicSummary, userAnswer, score, feedback, isFollowUp, parentQuestionIndex);
+        return new InterviewQuestionDTO(questionIndex, question, type, category, topicSummary, userAnswer, score, feedback, isFollowUp, parentQuestionIndex, roundCode);
+    }
+
+    public InterviewQuestionDTO withRoundCodeAndIndex(int index, String code) {
+        Integer parentIndex = parentQuestionIndex != null ? parentQuestionIndex + index - questionIndex : null;
+        return new InterviewQuestionDTO(index, question, type, category, topicSummary, userAnswer,
+            score, feedback, isFollowUp, parentIndex, code);
     }
 }

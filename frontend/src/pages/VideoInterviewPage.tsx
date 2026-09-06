@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Clock, PhoneOff, AlertCircle, Camera, ArrowLeft, SendHorizonal, Video, VideoOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AudioRecorder from '../components/AudioRecorder';
+import DigitalInterviewerVRM from '../components/DigitalInterviewerVRM';
 import InterviewPageHeader from '../components/InterviewPageHeader';
 import RealtimeSubtitle from '../components/RealtimeSubtitle';
 import VideoInterviewLiveScorePanel from '../components/VideoInterviewLiveScorePanel';
@@ -70,6 +71,8 @@ export default function VideoInterviewPage() {
   const lastAiCommittedTextRef = useRef('');
   const pendingAiTextCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const audioElementSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const chunkQueueRef = useRef<AudioBuffer[]>([]);
   const isChunkPlayingRef = useRef(false);
   const chunkPlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -171,6 +174,12 @@ export default function VideoInterviewPage() {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
       audioContextRef.current = new AudioContext({ sampleRate: 24000 });
     }
+    if (!audioAnalyserRef.current) {
+      audioAnalyserRef.current = audioContextRef.current.createAnalyser();
+      audioAnalyserRef.current.fftSize = 256;
+      audioAnalyserRef.current.smoothingTimeConstant = 0.72;
+      audioAnalyserRef.current.connect(audioContextRef.current.destination);
+    }
     return audioContextRef.current;
   }, []);
 
@@ -187,7 +196,7 @@ export default function VideoInterviewPage() {
     const buffer = chunkQueueRef.current.shift()!;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(ctx.destination);
+    source.connect(audioAnalyserRef.current ?? ctx.destination);
     chunkPlaybackSourceRef.current = source;
     source.onended = () => {
       chunkPlaybackSourceRef.current = null;
@@ -304,7 +313,10 @@ export default function VideoInterviewPage() {
         wsRef.current.disconnect();
       }
       chunkPlaybackSourceRef.current?.stop();
+      audioElementSourceRef.current?.disconnect();
+      audioElementSourceRef.current = null;
       audioContextRef.current?.close();
+      audioAnalyserRef.current = null;
       if (drainCheckRef.current) {
         clearInterval(drainCheckRef.current);
         drainCheckRef.current = null;
@@ -348,6 +360,18 @@ export default function VideoInterviewPage() {
 
   useEffect(() => {
     if (aiAudio && audioPlayerRef.current) {
+      try {
+        const context = getAudioContext();
+        if (!audioElementSourceRef.current) {
+          audioElementSourceRef.current = context.createMediaElementSource(audioPlayerRef.current);
+          audioElementSourceRef.current.connect(audioAnalyserRef.current ?? context.destination);
+        }
+        if (context.state === 'suspended') {
+          void context.resume();
+        }
+      } catch (audioSetupError) {
+        console.warn('[VideoInterview] Audio analyser setup failed:', audioSetupError);
+      }
       const playPromise = audioPlayerRef.current.play();
       if (playPromise !== undefined) {
         playPromise.catch(() => {
@@ -357,7 +381,7 @@ export default function VideoInterviewPage() {
         });
       }
     }
-  }, [aiAudio, setAiSpeaking]);
+  }, [aiAudio, getAudioContext, setAiSpeaking]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -662,10 +686,10 @@ export default function VideoInterviewPage() {
 
   return (
     <div className="pb-10">
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto max-w-[1600px] px-4">
         <InterviewPageHeader
           title="视频面试"
-          subtitle="摄像头面对面预览 + 现有语音面试链路，先实现真实沟通感"
+          subtitle="双向视频窗口 + AI 数字人语音面试，像视频会议一样面对面交流"
           icon={<Video className="w-6 h-6 text-white" />}
         />
 
@@ -676,7 +700,7 @@ export default function VideoInterviewPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.75fr)_minmax(320px,0.75fr)]">
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-4 flex-wrap">
@@ -708,23 +732,34 @@ export default function VideoInterviewPage() {
               </div>
 
               <div className="p-6">
-                <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800">
-                  <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-                  {cameraState !== 'active' && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-300">
-                      <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-                        <Video className="w-8 h-8" />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="relative aspect-video overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+                    <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+                    {cameraState !== 'active' && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-300">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                          <Video className="h-8 w-8" />
+                        </div>
+                        <p className="px-4 text-center text-sm">
+                          {cameraState === 'requesting' ? '正在打开摄像头...' : '点击下方按钮打开摄像头，进入面对面语音面试'}
+                        </p>
                       </div>
-                      <p className="text-sm">
-                        {cameraState === 'requesting' ? '正在打开摄像头...' : '点击下方按钮打开摄像头，进入面对面语音面试'}
-                      </p>
-                    </div>
-                  )}
+                    )}
 
-                  <div className="absolute left-4 bottom-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 text-white text-xs backdrop-blur">
-                    <span className={`w-2 h-2 rounded-full ${cameraState === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
-                    {cameraState === 'active' ? '摄像头已开启' : '摄像头未开启'}
+                    <div className="absolute left-4 top-4 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
+                      你
+                    </div>
+                    <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur">
+                      <span className={`h-2 w-2 rounded-full ${cameraState === 'active' ? 'animate-pulse bg-emerald-400' : 'bg-slate-400'}`} />
+                      {cameraState === 'active' ? '摄像头已开启' : '摄像头未开启'}
+                    </div>
                   </div>
+
+                  <DigitalInterviewerVRM
+                    isSpeaking={isAiSpeaking}
+                    isThinking={isSubmitting && !isAiSpeaking}
+                    audioAnalyserRef={audioAnalyserRef}
+                  />
                 </div>
 
                 {cameraError && (

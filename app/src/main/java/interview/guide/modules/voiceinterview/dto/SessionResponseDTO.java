@@ -19,6 +19,9 @@ public class SessionResponseDTO {
     private String roleType;
     private String interviewMode;
     private String currentPhase;
+    private String planId;
+    private String currentRoundCode;
+    private String interviewerRole;
     private String status;
     private LocalDateTime startTime;
     private Integer plannedDuration;

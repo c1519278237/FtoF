@@ -9,6 +9,8 @@ export interface InterviewSession {
   currentQuestionIndex: number;
   questions: InterviewQuestion[];
   status: 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'EVALUATED';
+  planId?: string | null;
+  currentRoundCode?: string | null;
 }
 
 export interface InterviewQuestion {
@@ -19,6 +21,22 @@ export interface InterviewQuestion {
   userAnswer: string | null;
   score: number | null;
   feedback: string | null;
+  roundCode?: string | null;
+}
+
+export interface InterviewRound {
+  id: number;
+  planId: string;
+  roundNumber: number;
+  roundCode: string;
+  name: string;
+  interviewerRole: string;
+  objective: string;
+  status: string;
+  score: number | null;
+  recommendation: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
 }
 
 export interface CreateInterviewRequest {
@@ -44,6 +62,15 @@ export interface SubmitAnswerResponse {
   nextQuestion: InterviewQuestion | null;
   currentIndex: number;
   totalQuestions: number;
+  roundCompleted?: boolean;
+  interviewCompleted?: boolean;
+  completedRoundCode?: string | null;
+  nextRoundCode?: string | null;
+  roundEvaluationCompleted?: boolean;
+  roundEvaluationPending?: boolean;
+  roundPassed?: boolean;
+  roundScore?: number | null;
+  roundPassScore?: number | null;
 }
 
 export interface CurrentQuestionResponse {

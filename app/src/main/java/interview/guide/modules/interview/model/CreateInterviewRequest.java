@@ -13,7 +13,7 @@ import java.util.List;
 public record CreateInterviewRequest(
     String resumeText,      // 简历文本内容（可选，无简历时为通用面试）
 
-    @Min(value = 3, message = "题目数量最少3题")
+    @Min(value = 4, message = "多轮面试至少需要4题，每轮至少1题")
     @Max(value = 20, message = "题目数量最多20题")
     int questionCount,      // 面试题目数量 (3-20)
 

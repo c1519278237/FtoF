@@ -20,6 +20,9 @@ public class SessionMetaDTO {
     private String interviewMode;
     private String status;
     private String currentPhase;
+    private String planId;
+    private String currentRoundCode;
+    private String interviewerRole;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer actualDuration;

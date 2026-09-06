@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AudioRecorder from '../components/AudioRecorder';
 import InterviewPageHeader from '../components/InterviewPageHeader';
 import RealtimeSubtitle from '../components/RealtimeSubtitle';
+import InterviewRoundRail from '../components/InterviewRoundRail';
 import { skillApi, type SkillDTO } from '../api/skill';
 import { getTemplateName } from '../utils/voiceInterview';
 import {
@@ -12,6 +13,7 @@ import {
   connectWebSocket,
   VoiceInterviewWebSocket,
 } from '../api/voiceInterview';
+import type {InterviewRound} from '../types/interview';
 
 export default function VoiceInterviewPage() {
   const navigate = useNavigate();
@@ -46,6 +48,8 @@ export default function VoiceInterviewPage() {
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [aiAudio, setAiAudio] = useState('');
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [rounds, setRounds] = useState<InterviewRound[]>([]);
+  const [interviewerRole, setInterviewerRole] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -281,6 +285,16 @@ export default function VoiceInterviewPage() {
     return phaseMap[phase] || phase;
   };
 
+  const getRoundCode = (phase: string) => {
+    const roundMap: Record<string, string> = {
+      INTRO: 'screening',
+      TECH: 'technical',
+      PROJECT: 'project',
+      HR: 'final',
+    };
+    return roundMap[phase];
+  };
+
   // 手动提交回答
   const handleSubmitAnswer = useCallback(() => {
     if (!wsRef.current || !wsRef.current.isConnected()) {
@@ -418,6 +432,8 @@ export default function VoiceInterviewPage() {
 
       setSessionId(session.sessionId);
       setCurrentPhase(session.currentPhase);
+      setInterviewerRole(session.interviewerRole ?? null);
+      voiceInterviewApi.getRounds(session.sessionId).then(setRounds).catch(() => setRounds([]));
 
       const wsUrl = resolveWebSocketUrl(session.sessionId, session.webSocketUrl);
       connectWithHandlers(session.sessionId, wsUrl);
@@ -440,6 +456,8 @@ export default function VoiceInterviewPage() {
       ]);
       setSessionId(session.sessionId);
       setCurrentPhase(session.currentPhase);
+      setInterviewerRole(session.interviewerRole ?? null);
+      voiceInterviewApi.getRounds(session.sessionId).then(setRounds).catch(() => setRounds([]));
 
       const restored = history.flatMap(msg => {
         const items: { role: 'user' | 'ai'; text: string; id: string }[] = [];
@@ -592,6 +610,11 @@ export default function VoiceInterviewPage() {
           </div>
         )}
 
+        <InterviewRoundRail
+          rounds={rounds}
+          currentRoundCode={getRoundCode(currentPhase)}
+        />
+
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2 space-y-6">
             <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm p-6">
@@ -610,6 +633,11 @@ export default function VoiceInterviewPage() {
                       <span className="text-xs px-2 py-0.5 bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-300 rounded-full">
                         {getPhaseLabel(currentPhase)}
                       </span>
+                      {interviewerRole && (
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {interviewerRole}
+                        </span>
+                      )}
                       <span className="text-xs text-slate-500 dark:text-slate-400">
                         {connectionStatus === 'connected' ? '连接正常' : connectionStatus === 'connecting' ? '连接中' : '连接断开'}
                       </span>

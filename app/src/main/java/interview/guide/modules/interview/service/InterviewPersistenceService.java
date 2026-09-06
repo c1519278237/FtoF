@@ -50,9 +50,21 @@ public class InterviewPersistenceService {
                                               String llmProvider,
                                               String skillId,
                                               String difficulty) {
+        return saveSession(sessionId, null, resumeId, totalQuestions, questions,
+            llmProvider, skillId, difficulty);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public InterviewSessionEntity saveSession(String sessionId, String planId, Long resumeId,
+                                              int totalQuestions,
+                                              List<InterviewQuestionDTO> questions,
+                                              String llmProvider,
+                                              String skillId,
+                                              String difficulty) {
         try {
             InterviewSessionEntity session = new InterviewSessionEntity();
             session.setSessionId(sessionId);
+            session.setPlanId(planId);
             session.setTotalQuestions(totalQuestions);
             session.setCurrentQuestionIndex(0);
             session.setStatus(InterviewSessionEntity.SessionStatus.CREATED);
@@ -134,6 +146,14 @@ public class InterviewPersistenceService {
     public InterviewAnswerEntity saveAnswer(String sessionId, int questionIndex,
                                             String question, String category,
                                             String userAnswer, int score, String feedback) {
+        return saveAnswer(sessionId, questionIndex, null, question, category,
+            userAnswer, score, feedback);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public InterviewAnswerEntity saveAnswer(String sessionId, int questionIndex, String roundCode,
+                                            String question, String category,
+                                            String userAnswer, int score, String feedback) {
         Optional<InterviewSessionEntity> sessionOpt = sessionRepository.findBySessionId(sessionId);
         if (sessionOpt.isEmpty()) {
             throw new BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND);
@@ -149,6 +169,7 @@ public class InterviewPersistenceService {
             });
 
         answer.setQuestion(question);
+        answer.setRoundCode(roundCode);
         answer.setCategory(category);
         answer.setUserAnswer(userAnswer);
         answer.setScore(score);

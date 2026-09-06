@@ -8,6 +8,7 @@ import interview.guide.modules.interview.repository.InterviewSessionRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -17,6 +18,8 @@ import java.util.Map;
 @Slf4j
 @Component
 public class EvaluateStreamProducer extends AbstractStreamProducer<String> {
+
+    private static final String ROUND_TASK_SEPARATOR = "::round::";
 
     private final InterviewSessionRepository sessionRepository;
 
@@ -34,6 +37,10 @@ public class EvaluateStreamProducer extends AbstractStreamProducer<String> {
         sendTask(sessionId);
     }
 
+    public void sendRoundEvaluateTask(String sessionId, String roundCode) {
+        sendTask(sessionId + ROUND_TASK_SEPARATOR + roundCode);
+    }
+
     @Override
     protected String taskDisplayName() {
         return "评估";
@@ -46,10 +53,14 @@ public class EvaluateStreamProducer extends AbstractStreamProducer<String> {
 
     @Override
     protected Map<String, String> buildMessage(String sessionId) {
-        return Map.of(
-            AsyncTaskStreamConstants.FIELD_SESSION_ID, sessionId,
-            AsyncTaskStreamConstants.FIELD_RETRY_COUNT, "0"
-        );
+        String[] parts = sessionId.split(ROUND_TASK_SEPARATOR, 2);
+        Map<String, String> message = new HashMap<>();
+        message.put(AsyncTaskStreamConstants.FIELD_SESSION_ID, parts[0]);
+        message.put(AsyncTaskStreamConstants.FIELD_RETRY_COUNT, "0");
+        if (parts.length == 2 && !parts[1].isBlank()) {
+            message.put(AsyncTaskStreamConstants.FIELD_ROUND_CODE, parts[1]);
+        }
+        return message;
     }
 
     @Override
@@ -59,7 +70,8 @@ public class EvaluateStreamProducer extends AbstractStreamProducer<String> {
 
     @Override
     protected void onSendFailed(String sessionId, String error) {
-        updateEvaluateStatus(sessionId, AsyncTaskStatus.FAILED, truncateError(error));
+        String actualSessionId = sessionId.split(ROUND_TASK_SEPARATOR, 2)[0];
+        updateEvaluateStatus(actualSessionId, AsyncTaskStatus.FAILED, truncateError(error));
     }
 
     /**

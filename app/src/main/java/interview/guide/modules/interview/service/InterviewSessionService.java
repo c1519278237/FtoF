@@ -18,6 +18,8 @@ import interview.guide.modules.interview.model.InterviewSessionEntity;
 import interview.guide.modules.interview.model.SubmitAnswerRequest;
 import interview.guide.modules.interview.model.SubmitAnswerResponse;
 import interview.guide.modules.interview.model.InterviewSessionDTO.SessionStatus;
+import interview.guide.modules.interview.round.InterviewRoundDefinition;
+import interview.guide.modules.interview.round.InterviewRoundService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.ArrayList;
 
 /**
  * 面试会话管理服务
@@ -46,6 +49,7 @@ public class InterviewSessionService {
     private final ObjectMapper objectMapper;
     private final EvaluateStreamProducer evaluateStreamProducer;
     private final LlmProviderRegistry llmProviderRegistry;
+    private final InterviewRoundService roundService;
 
     /**
      * 创建新的面试会话
@@ -64,6 +68,7 @@ public class InterviewSessionService {
         }
 
         String sessionId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        String planId = UUID.randomUUID().toString();
         String skillId = request.skillId() != null ? request.skillId() : InterviewDefaults.SKILL_ID;
         String difficulty = request.difficulty() != null ? request.difficulty() : InterviewDefaults.DIFFICULTY;
 
@@ -78,16 +83,31 @@ public class InterviewSessionService {
         ChatClient chatClient = llmProviderRegistry.getChatClientOrDefault(request.llmProvider());
 
         // 基于 Skill 生成面试问题
-        List<InterviewQuestionDTO> questions = questionService.generateQuestionsBySkill(
-            chatClient,
-            skillId,
-            difficulty,
-            request.resumeText(),
-            request.questionCount(),
-            historicalQuestions,
-            request.customCategories(),
-            request.jdText()
-        );
+        List<InterviewRoundDefinition> rounds = roundService.enabledDefinitions();
+        List<Integer> questionCounts = allocateQuestionCounts(request.questionCount(), rounds.size());
+        List<InterviewQuestionDTO> questions = new ArrayList<>();
+        for (int roundIndex = 0; roundIndex < rounds.size(); roundIndex++) {
+            int roundQuestionCount = questionCounts.get(roundIndex);
+            if (roundQuestionCount <= 0) {
+                continue;
+            }
+            InterviewRoundDefinition round = rounds.get(roundIndex);
+            List<InterviewQuestionDTO> generated = questionService.generateQuestionsBySkill(
+                chatClient,
+                skillId,
+                difficulty,
+                request.resumeText(),
+                roundQuestionCount,
+                historicalQuestions,
+                request.customCategories(),
+                request.jdText(),
+                round.promptInstruction()
+            );
+            int offset = questions.size();
+            for (InterviewQuestionDTO question : generated) {
+                questions.add(question.withRoundCodeAndIndex(offset + question.questionIndex(), round.code()));
+            }
+        }
 
         // 保存到 Redis 缓存
         sessionCache.saveSession(
@@ -101,8 +121,9 @@ public class InterviewSessionService {
 
         // 保存到数据库
         try {
-            persistenceService.saveSession(sessionId, request.resumeId(),
+            persistenceService.saveSession(sessionId, planId, request.resumeId(),
                 questions.size(), questions, request.llmProvider(), skillId, difficulty);
+            roundService.initializePlan(planId, sessionId, null, null);
         } catch (Exception e) {
             log.warn("保存面试会话到数据库失败: {}", e.getMessage());
         }
@@ -113,7 +134,9 @@ public class InterviewSessionService {
             questions.size(),
             0,
             questions,
-            SessionStatus.CREATED
+            SessionStatus.CREATED,
+            planId,
+            questions.isEmpty() ? null : questions.get(0).roundCode()
         );
     }
 
@@ -285,7 +308,9 @@ public class InterviewSessionService {
             }
         }
 
-        return questions.get(session.getCurrentIndex());
+        InterviewQuestionDTO currentQuestion = questions.get(session.getCurrentIndex());
+        markRoundStarted(sessionId, currentQuestion);
+        return currentQuestion;
     }
 
     /**
@@ -300,9 +325,14 @@ public class InterviewSessionService {
         if (index < 0 || index >= questions.size()) {
             throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_NOT_FOUND, "无效的问题索引: " + index);
         }
+        if (index != session.getCurrentIndex()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                "只能提交当前问题: currentIndex=" + session.getCurrentIndex() + ", questionIndex=" + index);
+        }
 
         // 更新问题答案
         InterviewQuestionDTO question = questions.get(index);
+        markRoundStarted(request.sessionId(), question);
         InterviewQuestionDTO answeredQuestion = question.withAnswer(request.answer());
         questions.set(index, answeredQuestion);
 
@@ -310,49 +340,87 @@ public class InterviewSessionService {
         int newIndex = index + 1;
 
         // 检查是否全部完成
-        boolean hasNextQuestion = newIndex < questions.size();
-        InterviewQuestionDTO nextQuestion = hasNextQuestion ? questions.get(newIndex) : null;
+        boolean hasNextQuestionOverall = newIndex < questions.size();
+        InterviewQuestionDTO nextOverallQuestion = hasNextQuestionOverall ? questions.get(newIndex) : null;
+        boolean roundCompleted = nextOverallQuestion == null
+            || !java.util.Objects.equals(question.roundCode(), nextOverallQuestion.roundCode());
+        boolean interviewCompleted = !hasNextQuestionOverall;
+        InterviewQuestionDTO nextQuestion = roundCompleted ? null : nextOverallQuestion;
+        String nextRoundCode = roundCompleted && nextOverallQuestion != null
+            ? nextOverallQuestion.roundCode() : null;
 
-        SessionStatus newStatus = hasNextQuestion ? SessionStatus.IN_PROGRESS : SessionStatus.COMPLETED;
+        boolean roundEvaluationCompleted = !roundCompleted || question.roundCode() == null;
+        boolean roundEvaluationPending = false;
+        boolean roundPassed = true;
+        Integer roundScore = null;
+        Integer roundPassScore = null;
 
-        // 更新 Redis 缓存
         sessionCache.updateQuestions(request.sessionId(), questions);
-        sessionCache.updateCurrentIndex(request.sessionId(), newIndex);
-        if (newStatus == SessionStatus.COMPLETED) {
-            sessionCache.updateSessionStatus(request.sessionId(), SessionStatus.COMPLETED);
-        }
 
         // 保存答案到数据库
         try {
             persistenceService.saveAnswer(
                 request.sessionId(), index,
-                question.question(), question.category(),
+                question.roundCode(), question.question(), question.category(),
                 request.answer(), 0, null  // 分数在报告生成时更新
             );
-            persistenceService.updateCurrentQuestionIndex(request.sessionId(), newIndex);
-            persistenceService.updateSessionStatus(request.sessionId(),
-                newStatus == SessionStatus.COMPLETED
-                    ? InterviewSessionEntity.SessionStatus.COMPLETED
-                    : InterviewSessionEntity.SessionStatus.IN_PROGRESS);
-
-            // 如果是最后一题，设置评估状态为 PENDING 并触发异步评估
-            if (!hasNextQuestion) {
-                persistenceService.updateEvaluateStatus(request.sessionId(), AsyncTaskStatus.PENDING, null);
-                evaluateStreamProducer.sendEvaluateTask(request.sessionId());
-                log.info("会话 {} 已完成所有问题，评估任务已入队", request.sessionId());
-            }
         } catch (Exception e) {
             log.warn("保存答案到数据库失败: {}", e.getMessage());
         }
 
+        if (roundCompleted && question.roundCode() != null) {
+            roundEvaluationCompleted = false;
+            roundEvaluationPending = true;
+            roundPassScore = roundService.definition(question.roundCode()).passScore();
+        }
+
+        if (roundPassed) {
+            if (roundCompleted && nextOverallQuestion != null) {
+                activateNextRound(request.sessionId(), nextOverallQuestion);
+            }
+            sessionCache.updateCurrentIndex(request.sessionId(), newIndex);
+            SessionStatus newStatus = interviewCompleted ? SessionStatus.COMPLETED : SessionStatus.IN_PROGRESS;
+            sessionCache.updateSessionStatus(request.sessionId(), newStatus);
+            try {
+                persistenceService.updateCurrentQuestionIndex(request.sessionId(), newIndex);
+                persistenceService.updateSessionStatus(request.sessionId(),
+                    newStatus == SessionStatus.COMPLETED
+                        ? InterviewSessionEntity.SessionStatus.COMPLETED
+                        : InterviewSessionEntity.SessionStatus.IN_PROGRESS);
+                if (roundCompleted && question.roundCode() != null) {
+                    String planId = findPlanId(request.sessionId());
+                    if (planId != null) {
+                        roundService.markEvaluating(planId, question.roundCode());
+                    }
+                    evaluateStreamProducer.sendRoundEvaluateTask(request.sessionId(), question.roundCode());
+                }
+                if (interviewCompleted) {
+                    persistenceService.updateEvaluateStatus(request.sessionId(), AsyncTaskStatus.PENDING, null);
+                    evaluateStreamProducer.sendEvaluateTask(request.sessionId());
+                    log.info("会话 {} 已完成所有问题，评估任务已入队", request.sessionId());
+                }
+            } catch (Exception e) {
+                log.warn("更新面试进度失败: {}", e.getMessage());
+            }
+        }
+
         log.info("会话 {} 提交答案: 问题{}, 剩余{}题",
-            request.sessionId(), index, questions.size() - newIndex);
+            request.sessionId(), index, questions.size() - (roundPassed ? newIndex : index));
 
         return new SubmitAnswerResponse(
-            hasNextQuestion,
+            !roundCompleted && roundPassed,
             nextQuestion,
-            newIndex,
-            questions.size()
+            roundPassed ? newIndex : index,
+            questions.size(),
+            roundCompleted,
+            interviewCompleted && roundPassed,
+            question.roundCode(),
+            nextRoundCode,
+            roundEvaluationCompleted,
+            roundEvaluationPending,
+            roundPassed,
+            roundScore,
+            roundPassScore
         );
     }
 
@@ -367,9 +435,14 @@ public class InterviewSessionService {
         if (index < 0 || index >= questions.size()) {
             throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_NOT_FOUND, "无效的问题索引: " + index);
         }
+        if (index != session.getCurrentIndex()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                "只能保存当前问题: currentIndex=" + session.getCurrentIndex() + ", questionIndex=" + index);
+        }
 
         // 更新问题答案
         InterviewQuestionDTO question = questions.get(index);
+        markRoundStarted(request.sessionId(), question);
         InterviewQuestionDTO answeredQuestion = question.withAnswer(request.answer());
         questions.set(index, answeredQuestion);
 
@@ -385,7 +458,7 @@ public class InterviewSessionService {
         try {
             persistenceService.saveAnswer(
                 request.sessionId(), index,
-                question.question(), question.category(),
+                question.roundCode(), question.question(), question.category(),
                 request.answer(), 0, null
             );
             persistenceService.updateSessionStatus(request.sessionId(),
@@ -500,7 +573,58 @@ public class InterviewSessionService {
             questions.size(),
             session.getCurrentIndex(),
             questions,
-            session.getStatus()
+            session.getStatus(),
+            findPlanId(session.getSessionId()),
+            currentRoundCode(session)
         );
+    }
+
+    private List<Integer> allocateQuestionCounts(int total, int roundCount) {
+        if (roundCount <= 0) {
+            return List.of(total);
+        }
+        int safeTotal = Math.max(0, total);
+        int base = safeTotal / roundCount;
+        int remainder = safeTotal % roundCount;
+        List<Integer> result = new ArrayList<>(roundCount);
+        for (int i = 0; i < roundCount; i++) {
+            result.add(base + (i < remainder ? 1 : 0));
+        }
+        return result;
+    }
+
+    private void markRoundStarted(String sessionId, InterviewQuestionDTO question) {
+        if (question == null || question.roundCode() == null) {
+            return;
+        }
+        persistenceService.findBySessionId(sessionId).ifPresent(session -> {
+            if (session.getPlanId() != null) {
+                roundService.activateForSequentialFlow(session.getPlanId(), question.roundCode());
+                roundService.markStarted(session.getPlanId(), question.roundCode());
+            }
+        });
+    }
+
+    private void activateNextRound(String sessionId, InterviewQuestionDTO nextQuestion) {
+        if (nextQuestion == null || nextQuestion.roundCode() == null) {
+            return;
+        }
+        persistenceService.findBySessionId(sessionId).ifPresent(session -> {
+            if (session.getPlanId() != null) {
+                roundService.activateForSequentialFlow(session.getPlanId(), nextQuestion.roundCode());
+            }
+        });
+    }
+
+    private String findPlanId(String sessionId) {
+        return persistenceService.findBySessionId(sessionId)
+            .map(InterviewSessionEntity::getPlanId)
+            .orElse(null);
+    }
+
+    private String currentRoundCode(CachedSession session) {
+        List<InterviewQuestionDTO> questions = session.getQuestions(objectMapper);
+        int index = session.getCurrentIndex();
+        return index >= 0 && index < questions.size() ? questions.get(index).roundCode() : null;
     }
 }

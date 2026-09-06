@@ -48,6 +48,10 @@ import java.util.function.Consumer;
 @Service
 public class QwenAsrService {
 
+    public QwenAsrService() {
+        this(new VoiceInterviewProperties());
+    }
+
     // Runtime configuration values (loaded from VoiceInterviewProperties; setters kept for tests)
     private String url;
 
@@ -102,12 +106,14 @@ public class QwenAsrService {
      * This method is automatically called by Spring after the service is constructed
      * and all configuration values have been loaded from VoiceInterviewProperties.
      *
-     * @throws IllegalStateException if apiKey is not configured
+     * Missing credentials disable live ASR but do not prevent the rest of the
+     * application from starting. The request path reports the configuration error.
      */
     @PostConstruct
     public void init() {
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalStateException("API key must be configured before initializing QwenAsrService");
+            log.warn("QwenAsrService is disabled because no API key is configured");
+            return;
         }
         log.info("QwenAsrService initialized with model: {}, url: {}", model, url);
     }
@@ -190,6 +196,14 @@ public class QwenAsrService {
             Consumer<String> onFinal,
             Consumer<String> onPartial,
             Consumer<Throwable> onError) {
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            IllegalStateException error = new IllegalStateException("Qwen ASR API key is not configured");
+            if (onError != null) {
+                onError.accept(error);
+            }
+            log.warn("Skip ASR session {} because no API key is configured", sessionId);
+            return;
+        }
         if (sessions.containsKey(sessionId)) {
             throw new IllegalStateException("Session already exists: " + sessionId);
         }

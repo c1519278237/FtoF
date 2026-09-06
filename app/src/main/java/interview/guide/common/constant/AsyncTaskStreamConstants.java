@@ -110,6 +110,11 @@ public final class AsyncTaskStreamConstants {
      */
     public static final String FIELD_SESSION_ID = "sessionId";
 
+    /**
+     * Optional round code for an interview round evaluation task.
+     */
+    public static final String FIELD_ROUND_CODE = "roundCode";
+
     // ========== 语音面试评估 Stream 配置 ==========
 
     /**

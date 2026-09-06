@@ -1,11 +1,23 @@
 package interview.guide.modules.voiceinterview.service;
 
+import interview.guide.modules.interview.round.InterviewRoundService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
 public class VoiceInterviewPromptService {
+
+    private InterviewRoundService roundService;
+
+    public VoiceInterviewPromptService() {
+    }
+
+    @Autowired
+    public VoiceInterviewPromptService(InterviewRoundService roundService) {
+        this.roundService = roundService;
+    }
 
     private static final String VOICE_RESPONSE_CONSTRAINTS = """
             【语音面试输出约束】
@@ -24,6 +36,10 @@ public class VoiceInterviewPromptService {
             """;
 
     public String generateSystemPromptWithContext(String skillId, String resumeText) {
+        return generateSystemPromptWithContext(skillId, resumeText, null);
+    }
+
+    public String generateSystemPromptWithContext(String skillId, String resumeText, String phaseOrRoundCode) {
         StringBuilder prompt = new StringBuilder();
 
         if (skillId != null && !skillId.isBlank()) {
@@ -32,6 +48,8 @@ public class VoiceInterviewPromptService {
 
         prompt.append("\n\n").append(VOICE_RESPONSE_CONSTRAINTS);
 
+        prompt.append(generateRoundPromptContext(phaseOrRoundCode));
+
         if (resumeText != null && !resumeText.isEmpty()) {
             prompt.append("\n\n【实时语音面试 - 候选人简历内容】\n")
                 .append("你已查阅过候选人简历。首轮仅用一句话说明已查阅，并立即进入首个问题。\n\n")
@@ -39,5 +57,49 @@ public class VoiceInterviewPromptService {
                 .append(resumeText);
         }
         return prompt.toString();
+    }
+
+    public String generateRoundPromptContext(String phaseOrRoundCode) {
+        if (roundService == null || phaseOrRoundCode == null || phaseOrRoundCode.isBlank()) {
+            return "";
+        }
+        String roundCode = roundService.roundCodeForPhase(phaseOrRoundCode);
+        return "\n\n【当前轮次职责】\n"
+            + roundService.buildPromptContext(roundCode)
+            + "\n当前面试官必须只围绕本轮职责提问；不要替代其他轮次做完整评估。\n";
+    }
+
+    /** Compatibility API retained for older callers and tests. */
+    public RolePrompt getRolePrompt(String roleType) {
+        RolePrompt prompt = new RolePrompt();
+        prompt.setRoleType("default");
+        prompt.setSystemPrompt("你是一名专业的面试官，请围绕候选人的回答进行清晰、克制的追问。");
+        return prompt;
+    }
+
+    /** Compatibility lifecycle hook retained for older callers and tests. */
+    public void init() {
+        // Round prompts are configuration-backed and do not require eager loading.
+    }
+
+    public static class RolePrompt {
+        private String roleType;
+        private String systemPrompt;
+
+        public String getRoleType() {
+            return roleType;
+        }
+
+        public void setRoleType(String roleType) {
+            this.roleType = roleType;
+        }
+
+        public String getSystemPrompt() {
+            return systemPrompt;
+        }
+
+        public void setSystemPrompt(String systemPrompt) {
+            this.systemPrompt = systemPrompt;
+        }
     }
 }

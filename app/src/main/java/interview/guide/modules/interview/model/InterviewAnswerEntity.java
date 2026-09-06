@@ -29,6 +29,10 @@ public class InterviewAnswerEntity {
     // 问题索引
     @Column(name = "question_index")
     private Integer questionIndex;
+
+    // 所属面试轮次，旧数据允许为空
+    @Column(name = "round_code", length = 32)
+    private String roundCode;
     
     // 问题内容
     @Column(columnDefinition = "TEXT")
@@ -88,6 +92,14 @@ public class InterviewAnswerEntity {
     
     public void setQuestionIndex(Integer questionIndex) {
         this.questionIndex = questionIndex;
+    }
+
+    public String getRoundCode() {
+        return roundCode;
+    }
+
+    public void setRoundCode(String roundCode) {
+        this.roundCode = roundCode;
     }
     
     public String getQuestion() {

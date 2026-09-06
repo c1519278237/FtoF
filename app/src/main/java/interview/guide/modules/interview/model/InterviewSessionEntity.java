@@ -26,6 +26,10 @@ public class InterviewSessionEntity {
     // 会话ID (UUID)
     @Column(nullable = false, unique = true, length = 36)
     private String sessionId;
+
+    // 多轮面试计划 ID
+    @Column(name = "plan_id", length = 64)
+    private String planId;
     
     // 面试主题
     @Column(length = 64)
@@ -129,6 +133,14 @@ public class InterviewSessionEntity {
     
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+    }
+
+    public String getPlanId() {
+        return planId;
+    }
+
+    public void setPlanId(String planId) {
+        this.planId = planId;
     }
     
     public Long getResumeId() {

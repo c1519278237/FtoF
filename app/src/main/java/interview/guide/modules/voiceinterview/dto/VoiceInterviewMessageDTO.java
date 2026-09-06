@@ -16,6 +16,7 @@ public class VoiceInterviewMessageDTO {
     private Long sessionId;
     private String messageType;
     private String phase;
+    private String roundCode;
     private String userRecognizedText;
     private String aiGeneratedText;
     private LocalDateTime timestamp;

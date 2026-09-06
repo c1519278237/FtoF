@@ -12,7 +12,10 @@ import interview.guide.modules.interview.model.SubmitAnswerResponse;
 import interview.guide.modules.interview.service.InterviewHistoryService;
 import interview.guide.modules.interview.service.InterviewPersistenceService;
 import interview.guide.modules.interview.service.InterviewSessionService;
+import interview.guide.modules.interview.round.InterviewRoundDTO;
+import interview.guide.modules.interview.round.InterviewRoundService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -44,6 +47,7 @@ public class InterviewController {
     private final InterviewSessionService sessionService;
     private final InterviewHistoryService historyService;
     private final InterviewPersistenceService persistenceService;
+    private final InterviewRoundService roundService;
     
     /**
      * 列出所有面试会话（用于面试记录页）
@@ -62,7 +66,7 @@ public class InterviewController {
     @PostMapping("/api/interview/sessions")
     @RateLimit(dimension = RateLimit.Dimension.GLOBAL, count = 5)
     @RateLimit(dimension = RateLimit.Dimension.IP, count = 5)
-    public Result<InterviewSessionDTO> createSession(@RequestBody CreateInterviewRequest request) {
+    public Result<InterviewSessionDTO> createSession(@Valid @RequestBody CreateInterviewRequest request) {
         log.info("创建面试会话，题目数量: {}", request.questionCount());
         InterviewSessionDTO session = sessionService.createSession(request);
         return Result.success(session);
@@ -75,6 +79,11 @@ public class InterviewController {
     public Result<InterviewSessionDTO> getSession(@PathVariable String sessionId) {
         InterviewSessionDTO session = sessionService.getSession(sessionId);
         return Result.success(session);
+    }
+
+    @GetMapping("/api/interview/sessions/{sessionId}/rounds")
+    public Result<List<InterviewRoundDTO>> getRounds(@PathVariable String sessionId) {
+        return Result.success(roundService.listByTextSessionId(sessionId));
     }
     
     /**

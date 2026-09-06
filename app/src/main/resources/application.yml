@@ -146,6 +146,53 @@ app:
         min-score-default: ${APP_AI_RAG_MIN_SCORE_DEFAULT:0.28}
   interview:
     follow-up-count: ${APP_INTERVIEW_FOLLOW_UP_COUNT:1}
+    # Multi-round interview responsibilities. Keep these definitions stable so
+    # question generation, live voice prompts, and round reports share one vocabulary.
+    rounds:
+      - code: screening
+        order: 1
+        name: 简历初筛
+        interviewer-role: 简历初筛官
+        objective: 判断简历真实性、沟通表达、求职动机和岗位匹配
+        scope: 简历事实、个人贡献、求职动机、沟通表达、入职条件
+        exclusions: 深入算法、系统设计和底层原理
+        pass-score: 60
+        min-questions: 1
+        max-questions: 5
+        enabled: true
+      - code: technical
+        order: 2
+        name: 技术基础
+        interviewer-role: 技术基础官
+        objective: 判断技术基础、原理理解、编码思路和排障能力
+        scope: 语言、框架、数据库、缓存、并发、网络、算法、Debug
+        exclusions: 重复职业规划和完整项目复盘
+        pass-score: 65
+        min-questions: 1
+        max-questions: 8
+        enabled: true
+      - code: project
+        order: 3
+        name: 项目与架构
+        interviewer-role: 项目与架构官
+        objective: 验证项目真实性、个人贡献、架构设计和技术取舍
+        scope: 项目背景、个人贡献、架构、性能、可靠性、故障处理、取舍
+        exclusions: 大范围基础知识普查和重复自我介绍
+        pass-score: 65
+        min-questions: 1
+        max-questions: 7
+        enabled: true
+      - code: final
+        order: 4
+        name: 综合终面
+        interviewer-role: 综合终面官
+        objective: 判断业务匹配、责任意识、协作能力、成长性和最终录用风险
+        scope: 业务理解、责任意识、协作、取舍、成长、风险确认
+        exclusions: 重复前三轮的完整题目和基础知识考察
+        pass-score: 60
+        min-questions: 1
+        max-questions: 5
+        enabled: true
     evaluation:
       batch-size: ${APP_INTERVIEW_EVALUATION_BATCH_SIZE:8}
   resume:

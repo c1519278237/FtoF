@@ -121,6 +121,24 @@ public class InterviewQuestionService {
             List<HistoricalQuestion> historicalQuestions,
             List<CategoryDTO> customCategories,
             String jdText) {
+        return generateQuestionsBySkill(chatClient, skillId, difficulty, resumeText, questionCount,
+            historicalQuestions, customCategories, jdText, null);
+    }
+
+    /**
+     * Generate questions with an explicit round responsibility. The old overload remains
+     * available for backward compatibility with callers that do not use multi-round plans.
+     */
+    public List<InterviewQuestionDTO> generateQuestionsBySkill(
+            ChatClient chatClient,
+            String skillId,
+            String difficulty,
+            String resumeText,
+            int questionCount,
+            List<HistoricalQuestion> historicalQuestions,
+            List<CategoryDTO> customCategories,
+            String jdText,
+            String roundInstruction) {
 
         SkillDTO skill = resolveSkill(skillId, customCategories, jdText);
         String difficultyDesc = resolveDifficulty(difficulty);
@@ -128,7 +146,8 @@ public class InterviewQuestionService {
         boolean hasResume = resumeText != null && !resumeText.isBlank();
         String historicalSection = buildHistoricalSection(historicalQuestions);
         if (!hasResume) {
-            return generateDirectionOnly(chatClient, skill, difficultyDesc, questionCount, historicalSection);
+            return generateDirectionOnly(chatClient, skill, difficultyDesc, questionCount, historicalSection,
+                roundInstruction);
         }
 
         int resumeCount = Math.max(1, (int) Math.round(questionCount * RESUME_QUESTION_RATIO));
@@ -138,11 +157,13 @@ public class InterviewQuestionService {
             skillId, questionCount, resumeCount, directionCount);
 
         CompletableFuture<List<InterviewQuestionDTO>> resumeFuture = CompletableFuture.supplyAsync(
-            () -> generateResumeQuestions(resumeText, resumeCount, skill, difficultyDesc, historicalSection),
+            () -> generateResumeQuestions(resumeText, resumeCount, skill, difficultyDesc, historicalSection,
+                roundInstruction),
             questionExecutor);
 
         CompletableFuture<List<InterviewQuestionDTO>> directionFuture = CompletableFuture.supplyAsync(
-            () -> generateDirectionOnly(chatClient, skill, difficultyDesc, directionCount, historicalSection),
+            () -> generateDirectionOnly(chatClient, skill, difficultyDesc, directionCount, historicalSection,
+                roundInstruction),
             questionExecutor);
 
         List<InterviewQuestionDTO> resumeQuestions;
@@ -152,7 +173,8 @@ public class InterviewQuestionService {
         } catch (CompletionException e) {
             log.error("简历题生成失败，降级为全方向题", e.getCause());
             directionFuture.cancel(true);
-            return generateDirectionOnly(chatClient, skill, difficultyDesc, questionCount, historicalSection);
+            return generateDirectionOnly(chatClient, skill, difficultyDesc, questionCount, historicalSection,
+                roundInstruction);
         }
 
         try {
@@ -178,7 +200,8 @@ public class InterviewQuestionService {
 
     private List<InterviewQuestionDTO> generateResumeQuestions(
             String resumeText, int questionCount,
-            SkillDTO skill, String difficultyDesc, String historicalSection) {
+            SkillDTO skill, String difficultyDesc, String historicalSection,
+            String roundInstruction) {
         try {
             ChatClient plainClient = llmProviderRegistry.getPlainChatClient(null);
             Map<String, Object> variables = new HashMap<>();
@@ -190,7 +213,9 @@ public class InterviewQuestionService {
             variables.put("resumeText", resumeText);
             variables.put("historicalSection", historicalSection);
 
-            String systemPrompt = resumeSystemPromptTemplate.render() + "\n\n" + outputConverter.getFormat();
+            String systemPrompt = resumeSystemPromptTemplate.render()
+                + buildRoundInstruction(roundInstruction)
+                + "\n\n" + outputConverter.getFormat();
             String userPrompt = resumeUserPromptTemplate.render(variables);
 
             QuestionListDTO dto = structuredOutputInvoker.invoke(
@@ -213,7 +238,7 @@ public class InterviewQuestionService {
 
     private List<InterviewQuestionDTO> generateDirectionOnly(
             ChatClient chatClient, SkillDTO skill, String difficultyDesc,
-            int questionCount, String historicalSection) {
+            int questionCount, String historicalSection, String roundInstruction) {
         Map<String, Integer> allocation = skillService.calculateAllocation(skill.categories(), questionCount);
         String allocationTable = skillService.buildAllocationDescription(allocation, skill.categories());
 
@@ -234,7 +259,9 @@ public class InterviewQuestionService {
             variables.put("jdSection", buildJdSection(skill.sourceJd()));
 
             String systemPrompt = skillSystemPromptTemplate.render()
-                + GENERIC_MODE_SYSTEM_APPEND + outputConverter.getFormat();
+                + GENERIC_MODE_SYSTEM_APPEND
+                + buildRoundInstruction(roundInstruction)
+                + outputConverter.getFormat();
             String userPrompt = skillUserPromptTemplate.render(variables);
 
             QuestionListDTO dto = structuredOutputInvoker.invoke(
@@ -278,6 +305,13 @@ public class InterviewQuestionService {
                 q.topicSummary(), q.isFollowUp(), newParent));
         }
         return merged;
+    }
+
+    private String buildRoundInstruction(String roundInstruction) {
+        if (roundInstruction == null || roundInstruction.isBlank()) {
+            return "";
+        }
+        return "\n\n# 多轮面试职责约束\n" + roundInstruction + "\n";
     }
 
     private SkillDTO resolveSkill(String skillId, List<CategoryDTO> customCategories, String jdText) {

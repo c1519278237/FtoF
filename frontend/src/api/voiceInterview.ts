@@ -1,4 +1,5 @@
 import { request } from './request';
+import type {InterviewRound} from '../types/interview';
 
 // ========== 类型定义 ==========
 
@@ -23,6 +24,9 @@ export interface SessionResponse {
   roleType: string;
   interviewMode?: 'VOICE' | 'VIDEO';
   currentPhase: string;
+  planId?: string | null;
+  currentRoundCode?: string | null;
+  interviewerRole?: string | null;
   status: string;
   startTime: string;
   plannedDuration: number;
@@ -34,6 +38,7 @@ export interface InterviewMessage {
   sessionId: number;
   messageType: string;
   phase: string;
+  roundCode?: string | null;
   userRecognizedText: string;
   aiGeneratedText: string;
   timestamp: string;
@@ -199,6 +204,10 @@ export const voiceInterviewApi = {
    */
   async getSession(sessionId: number): Promise<SessionResponse> {
     return request.get<SessionResponse>(`/api/voice-interview/sessions/${sessionId}`);
+  },
+
+  async getRounds(sessionId: number): Promise<InterviewRound[]> {
+    return request.get<InterviewRound[]>(`/api/voice-interview/sessions/${sessionId}/rounds`);
   },
 
   /**

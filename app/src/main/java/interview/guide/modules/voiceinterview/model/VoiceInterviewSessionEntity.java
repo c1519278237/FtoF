@@ -25,6 +25,9 @@ public class VoiceInterviewSessionEntity {
     @Column(name = "user_id")
     private String userId;
 
+    @Column(name = "plan_id", length = 64)
+    private String planId;
+
     @Column(name = "role_type", nullable = false)
     private String roleType;
 

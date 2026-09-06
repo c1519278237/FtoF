@@ -5,8 +5,8 @@ import interview.guide.modules.resume.model.ResumeEntity;
 import interview.guide.modules.resume.repository.ResumeRepository;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
@@ -18,7 +18,6 @@ import java.util.function.Consumer;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class DashscopeLlmService {
 
     private static final String TERMINAL_PUNCTUATION = "。！？；!?;.";
@@ -27,6 +26,24 @@ public class DashscopeLlmService {
     private final VoiceInterviewPromptService promptService;
     private final ResumeRepository resumeRepository;
     private final VoiceInterviewProperties voiceInterviewProperties;
+
+    @Autowired
+    public DashscopeLlmService(LlmProviderRegistry llmProviderRegistry,
+                               VoiceInterviewPromptService promptService,
+                               ResumeRepository resumeRepository,
+                               VoiceInterviewProperties voiceInterviewProperties) {
+        this.llmProviderRegistry = llmProviderRegistry;
+        this.promptService = promptService;
+        this.resumeRepository = resumeRepository;
+        this.voiceInterviewProperties = voiceInterviewProperties;
+    }
+
+    /** Compatibility constructor retained for older unit tests and integrations. */
+    public DashscopeLlmService(LlmProviderRegistry llmProviderRegistry,
+                               VoiceInterviewPromptService promptService,
+                               ResumeRepository resumeRepository) {
+        this(llmProviderRegistry, promptService, resumeRepository, new VoiceInterviewProperties());
+    }
 
     public String chat(String userInput, VoiceInterviewSessionEntity session, List<String> conversationHistory) {
         try {
@@ -162,6 +179,11 @@ public class DashscopeLlmService {
         }
 
         String systemPrompt = promptService.generateSystemPromptWithContext(session.getSkillId(), resumeText);
+        String roundContext = promptService.generateRoundPromptContext(
+            session.getCurrentPhase() != null ? session.getCurrentPhase().name() : null);
+        if (roundContext != null && !roundContext.isBlank()) {
+            systemPrompt += roundContext;
+        }
 
         StringBuilder promptBuilder = new StringBuilder();
         if (conversationHistory != null && !conversationHistory.isEmpty()) {

@@ -15,8 +15,9 @@ import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionStatus;
 import interview.guide.modules.voiceinterview.repository.VoiceInterviewEvaluationRepository;
 import interview.guide.modules.voiceinterview.repository.VoiceInterviewMessageRepository;
 import interview.guide.modules.voiceinterview.repository.VoiceInterviewSessionRepository;
-import lombok.RequiredArgsConstructor;
+import interview.guide.modules.interview.round.InterviewRoundService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
@@ -24,8 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -40,7 +43,6 @@ import java.util.stream.Collectors;
  * </p>
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class VoiceInterviewService {
 
@@ -50,10 +52,36 @@ public class VoiceInterviewService {
     private final RedissonClient redissonClient;
     private final VoiceInterviewProperties properties;
     private final VoiceInterviewEvaluationDispatcher evaluationDispatcher;
+    private final InterviewRoundService roundService;
 
     private static final String SESSION_CACHE_KEY_PREFIX = "voice:interview:session:";
     private static final int CACHE_TTL_HOURS = 1;
     private static final String DEFAULT_USER_ID = "default";
+
+    @Autowired
+    public VoiceInterviewService(VoiceInterviewSessionRepository sessionRepository,
+                                 VoiceInterviewMessageRepository messageRepository,
+                                 VoiceInterviewEvaluationRepository evaluationRepository,
+                                 RedissonClient redissonClient,
+                                 VoiceInterviewProperties properties,
+                                 VoiceInterviewEvaluationDispatcher evaluationDispatcher,
+                                 InterviewRoundService roundService) {
+        this.sessionRepository = sessionRepository;
+        this.messageRepository = messageRepository;
+        this.evaluationRepository = evaluationRepository;
+        this.redissonClient = redissonClient;
+        this.properties = properties;
+        this.evaluationDispatcher = evaluationDispatcher;
+        this.roundService = roundService;
+    }
+
+    /** Compatibility constructor retained for older unit tests and integrations. */
+    public VoiceInterviewService(VoiceInterviewSessionRepository sessionRepository,
+                                 VoiceInterviewMessageRepository messageRepository,
+                                 RedissonClient redissonClient,
+                                 VoiceInterviewProperties properties) {
+        this(sessionRepository, messageRepository, null, redissonClient, properties, null, null);
+    }
 
     /**
      * Create a new voice interview session
@@ -64,6 +92,14 @@ public class VoiceInterviewService {
      */
     @Transactional
     public SessionResponseDTO createSession(CreateSessionRequest request) {
+        boolean introEnabled = phaseEnabled(request.getIntroEnabled(), false);
+        boolean techEnabled = phaseEnabled(request.getTechEnabled(), true);
+        boolean projectEnabled = phaseEnabled(request.getProjectEnabled(), true);
+        boolean hrEnabled = phaseEnabled(request.getHrEnabled(), true);
+        if (!introEnabled && !techEnabled && !projectEnabled && !hrEnabled) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "至少需要启用一个语音面试阶段");
+        }
+
         String effectiveSkillId = request.getSkillId() != null ? request.getSkillId() : InterviewDefaults.SKILL_ID;
         String effectiveLlmProvider = (request.getLlmProvider() != null && !request.getLlmProvider().isBlank())
             ? request.getLlmProvider()
@@ -72,15 +108,16 @@ public class VoiceInterviewService {
 
         VoiceInterviewSessionEntity session = VoiceInterviewSessionEntity.builder()
                 .userId(DEFAULT_USER_ID)
+                .planId(UUID.randomUUID().toString())
                 .roleType(effectiveSkillId)
                 .skillId(effectiveSkillId)
                 .difficulty(request.getDifficulty() != null ? request.getDifficulty() : InterviewDefaults.DIFFICULTY)
                 .customJdText(request.getCustomJdText())
                 .resumeId(request.getResumeId())
-                .introEnabled(request.getIntroEnabled())
-                .techEnabled(request.getTechEnabled())
-                .projectEnabled(request.getProjectEnabled())
-                .hrEnabled(request.getHrEnabled())
+                .introEnabled(introEnabled)
+                .techEnabled(techEnabled)
+                .projectEnabled(projectEnabled)
+                .hrEnabled(hrEnabled)
                 .llmProvider(effectiveLlmProvider)
                 .interviewMode(effectiveInterviewMode)
                 .liveEvaluationEnabled(Boolean.TRUE.equals(request.getLiveEvaluationEnabled()))
@@ -89,6 +126,9 @@ public class VoiceInterviewService {
                 .build();
 
         VoiceInterviewSessionEntity saved = sessionRepository.save(session);
+        if (roundService != null && saved.getPlanId() != null) {
+            roundService.initializePlan(saved.getPlanId(), null, saved.getId(), enabledRoundCodes(request));
+        }
         cacheSession(saved);
 
         log.info("Created voice interview session: {} with template: {}, phase: {}",
@@ -210,6 +250,12 @@ public class VoiceInterviewService {
             sessionRepository.save(session);
             cacheSession(session); // Update cache
 
+            if (roundService != null && session.getPlanId() != null
+                && newPhase != VoiceInterviewSessionEntity.InterviewPhase.COMPLETED) {
+                roundService.activateForSequentialFlow(session.getPlanId(), roundService.roundCodeForPhase(newPhase.name()));
+                roundService.markStarted(session.getPlanId(), roundService.roundCodeForPhase(newPhase.name()));
+            }
+
             log.info("Session {} transitioned from phase {} to {}", sessionId, oldPhase, newPhase);
 
         } catch (IllegalArgumentException e) {
@@ -251,6 +297,7 @@ public class VoiceInterviewService {
                 .sessionId(sessionIdLong)
                 .messageType("DIALOGUE")
                 .phase(session.getCurrentPhase())
+                .roundCode(currentRoundCode(session))
                 .userRecognizedText(userText)
                 .aiGeneratedText(aiText)
                 .sequenceNum(getNextSequenceNum(sessionIdLong))
@@ -358,6 +405,7 @@ public class VoiceInterviewService {
                 .sessionId(msg.getSessionId())
                 .messageType(msg.getMessageType())
                 .phase(msg.getPhase() != null ? msg.getPhase().name() : null)
+                .roundCode(msg.getRoundCode())
                 .userRecognizedText(msg.getUserRecognizedText())
                 .aiGeneratedText(msg.getAiGeneratedText())
                 .timestamp(msg.getTimestamp())
@@ -454,6 +502,9 @@ public class VoiceInterviewService {
                 .interviewMode(resolveInterviewMode(session))
                 .status(session.getStatus().name())
                 .currentPhase(session.getCurrentPhase().name())
+                .planId(session.getPlanId())
+                .currentRoundCode(currentRoundCode(session))
+                .interviewerRole(currentInterviewerRole(session))
                 .createdAt(session.getCreatedAt())
                 .updatedAt(session.getUpdatedAt())
                 .actualDuration(session.getActualDuration())
@@ -544,15 +595,15 @@ public class VoiceInterviewService {
         }
 
         return switch (current) {
-            case INTRO -> session.getTechEnabled() ? VoiceInterviewSessionEntity.InterviewPhase.TECH :
-                    session.getProjectEnabled() ? VoiceInterviewSessionEntity.InterviewPhase.PROJECT :
-                            session.getHrEnabled() ? VoiceInterviewSessionEntity.InterviewPhase.HR :
+            case INTRO -> Boolean.TRUE.equals(session.getTechEnabled()) ? VoiceInterviewSessionEntity.InterviewPhase.TECH :
+                    Boolean.TRUE.equals(session.getProjectEnabled()) ? VoiceInterviewSessionEntity.InterviewPhase.PROJECT :
+                            Boolean.TRUE.equals(session.getHrEnabled()) ? VoiceInterviewSessionEntity.InterviewPhase.HR :
                                     VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
-            case TECH -> session.getProjectEnabled() ? VoiceInterviewSessionEntity.InterviewPhase.PROJECT :
-                    session.getHrEnabled() ? VoiceInterviewSessionEntity.InterviewPhase.HR :
+            case TECH -> Boolean.TRUE.equals(session.getProjectEnabled()) ? VoiceInterviewSessionEntity.InterviewPhase.PROJECT :
+                    Boolean.TRUE.equals(session.getHrEnabled()) ? VoiceInterviewSessionEntity.InterviewPhase.HR :
                             VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
-            case PROJECT -> session.getHrEnabled() ? VoiceInterviewSessionEntity.InterviewPhase.HR :
-                    VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
+            case PROJECT -> Boolean.TRUE.equals(session.getHrEnabled()) ? VoiceInterviewSessionEntity.InterviewPhase.HR :
+                            VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
             case HR, COMPLETED -> VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
         };
     }
@@ -564,10 +615,10 @@ public class VoiceInterviewService {
      * 根据启用的阶段确定第一个阶段
      */
     private VoiceInterviewSessionEntity.InterviewPhase determineFirstPhase(CreateSessionRequest request) {
-        if (request.getIntroEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.INTRO;
-        if (request.getTechEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.TECH;
-        if (request.getProjectEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.PROJECT;
-        if (request.getHrEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.HR;
+        if (phaseEnabled(request.getIntroEnabled(), false)) return VoiceInterviewSessionEntity.InterviewPhase.INTRO;
+        if (phaseEnabled(request.getTechEnabled(), true)) return VoiceInterviewSessionEntity.InterviewPhase.TECH;
+        if (phaseEnabled(request.getProjectEnabled(), true)) return VoiceInterviewSessionEntity.InterviewPhase.PROJECT;
+        if (phaseEnabled(request.getHrEnabled(), true)) return VoiceInterviewSessionEntity.InterviewPhase.HR;
         return VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
     }
 
@@ -575,10 +626,10 @@ public class VoiceInterviewService {
      * Get first enabled phase from session
      */
     private VoiceInterviewSessionEntity.InterviewPhase getFirstEnabledPhase(VoiceInterviewSessionEntity session) {
-        if (session.getIntroEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.INTRO;
-        if (session.getTechEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.TECH;
-        if (session.getProjectEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.PROJECT;
-        if (session.getHrEnabled()) return VoiceInterviewSessionEntity.InterviewPhase.HR;
+        if (Boolean.TRUE.equals(session.getIntroEnabled())) return VoiceInterviewSessionEntity.InterviewPhase.INTRO;
+        if (Boolean.TRUE.equals(session.getTechEnabled())) return VoiceInterviewSessionEntity.InterviewPhase.TECH;
+        if (Boolean.TRUE.equals(session.getProjectEnabled())) return VoiceInterviewSessionEntity.InterviewPhase.PROJECT;
+        if (Boolean.TRUE.equals(session.getHrEnabled())) return VoiceInterviewSessionEntity.InterviewPhase.HR;
         return VoiceInterviewSessionEntity.InterviewPhase.COMPLETED;
     }
 
@@ -588,6 +639,9 @@ public class VoiceInterviewService {
                 .roleType(session.getRoleType())
                 .interviewMode(resolveInterviewMode(session))
                 .currentPhase(session.getCurrentPhase().name())
+                .planId(session.getPlanId())
+                .currentRoundCode(currentRoundCode(session))
+                .interviewerRole(currentInterviewerRole(session))
                 .status(session.getStatus().name())
                 .startTime(session.getStartTime())
                 .plannedDuration(session.getPlannedDuration())
@@ -625,6 +679,8 @@ public class VoiceInterviewService {
             .sessionId(sessionId)
             .messageType("DIALOGUE")
             .phase(phase)
+            .roundCode(roundService != null
+                ? roundService.roundCodeForPhase(phase != null ? phase.name() : null) : null)
             .userRecognizedText(userText)
             .aiGeneratedText(aiText)
             .sequenceNum(getNextSequenceNum(sessionId))
@@ -660,6 +716,34 @@ public class VoiceInterviewService {
             return "VOICE";
         }
         return "VIDEO".equalsIgnoreCase(interviewMode.trim()) ? "VIDEO" : "VOICE";
+    }
+
+    private List<String> enabledRoundCodes(CreateSessionRequest request) {
+        List<String> codes = new ArrayList<>();
+        if (phaseEnabled(request.getIntroEnabled(), false)) codes.add("screening");
+        if (phaseEnabled(request.getTechEnabled(), true)) codes.add("technical");
+        if (phaseEnabled(request.getProjectEnabled(), true)) codes.add("project");
+        if (phaseEnabled(request.getHrEnabled(), true)) codes.add("final");
+        return codes;
+    }
+
+    private boolean phaseEnabled(Boolean value, boolean defaultValue) {
+        return value == null ? defaultValue : value;
+    }
+
+    private String currentRoundCode(VoiceInterviewSessionEntity session) {
+        if (session == null || session.getCurrentPhase() == null
+            || session.getCurrentPhase() == VoiceInterviewSessionEntity.InterviewPhase.COMPLETED
+            || roundService == null) {
+            return null;
+        }
+        return roundService.roundCodeForPhase(session.getCurrentPhase().name());
+    }
+
+    private String currentInterviewerRole(VoiceInterviewSessionEntity session) {
+        String roundCode = currentRoundCode(session);
+        if (roundCode == null) return null;
+        return roundService.definition(roundCode).interviewerRole();
     }
 
     /**
