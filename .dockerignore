@@ -47,6 +47,7 @@ yarn.lock
 logs/
 tmp/
 temp/
+.tmp-face-test/
 test-output.txt
 
 # OS Generated Files

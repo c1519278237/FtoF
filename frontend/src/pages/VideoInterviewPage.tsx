@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Clock, PhoneOff, AlertCircle, Camera, ArrowLeft, SendHorizonal, Video, VideoOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AudioRecorder from '../components/AudioRecorder';
+import FacialExpressionTracker from '../components/FacialExpressionTracker';
 import DigitalInterviewerVRM from '../components/DigitalInterviewerVRM';
 import InterviewPageHeader from '../components/InterviewPageHeader';
 import RealtimeSubtitle from '../components/RealtimeSubtitle';
@@ -13,6 +14,7 @@ import {
   voiceInterviewApi,
   connectWebSocket,
   VoiceInterviewWebSocket,
+  type ExpressionMetricsSummary,
   type LiveEvaluationSnapshot,
 } from '../api/voiceInterview';
 
@@ -81,6 +83,9 @@ export default function VideoInterviewPage() {
   const liveEvaluationRequestSeqRef = useRef(0);
   const pendingEvaluationRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveEvaluationAwaitingTurnRef = useRef(false);
+  const expressionMetricsRef = useRef<ExpressionMetricsSummary | null>(null);
+  const expressionUploadPromiseRef = useRef<Promise<void> | null>(null);
+  const lastExpressionUploadAtRef = useRef(0);
 
   useEffect(() => {
     aiTextRef.current = aiText;
@@ -90,6 +95,45 @@ export default function VideoInterviewPage() {
     isAiSpeakingRef.current = value;
     setIsAiSpeaking(value);
   }, []);
+
+  const uploadExpressionMetrics = useCallback((targetSessionId: number, summary: ExpressionMetricsSummary) => {
+    const upload = voiceInterviewApi.saveExpressionMetrics(targetSessionId, summary)
+      .then(() => undefined)
+      .catch(uploadError => {
+        console.warn('[VideoInterview] expression metrics upload failed:', uploadError);
+      });
+    expressionUploadPromiseRef.current = upload;
+    void upload.finally(() => {
+      if (expressionUploadPromiseRef.current === upload) {
+        expressionUploadPromiseRef.current = null;
+      }
+    });
+    return upload;
+  }, []);
+
+  const handleExpressionSummaryChange = useCallback((summary: ExpressionMetricsSummary) => {
+    expressionMetricsRef.current = summary;
+    if (!sessionId) return;
+
+    const now = Date.now();
+    if (now - lastExpressionUploadAtRef.current < 7_000) return;
+    lastExpressionUploadAtRef.current = now;
+    const previousUpload = expressionUploadPromiseRef.current ?? Promise.resolve();
+    expressionUploadPromiseRef.current = previousUpload
+      .catch(() => undefined)
+      .then(() => uploadExpressionMetrics(sessionId, summary));
+  }, [sessionId, uploadExpressionMetrics]);
+
+  const flushExpressionMetrics = useCallback(async () => {
+    if (!sessionId || !expressionMetricsRef.current) return;
+    const previousUpload = expressionUploadPromiseRef.current ?? Promise.resolve();
+    const summary = expressionMetricsRef.current;
+    const upload = previousUpload
+      .catch(() => undefined)
+      .then(() => uploadExpressionMetrics(sessionId, summary));
+    expressionUploadPromiseRef.current = upload;
+    await upload;
+  }, [sessionId, uploadExpressionMetrics]);
 
   const clearPendingAiTextCommit = useCallback(() => {
     if (pendingAiTextCommitRef.current) {
@@ -640,6 +684,7 @@ export default function VideoInterviewPage() {
       wsRef.current.disconnect();
     }
     clearPendingEvaluationRefresh();
+    await flushExpressionMetrics();
     stopCamera();
     if (sessionId) {
       try {
@@ -657,6 +702,7 @@ export default function VideoInterviewPage() {
       wsRef.current.disconnect();
     }
     clearPendingEvaluationRefresh();
+    await flushExpressionMetrics();
     stopCamera();
     if (sessionId) {
       await voiceInterviewApi.pauseSession(sessionId).catch(() => {});
@@ -735,6 +781,11 @@ export default function VideoInterviewPage() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="relative aspect-video overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
                     <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+                    <FacialExpressionTracker
+                      videoRef={videoRef}
+                      active={cameraState === 'active'}
+                      onSummaryChange={handleExpressionSummaryChange}
+                    />
                     {cameraState !== 'active' && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-300">
                         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">

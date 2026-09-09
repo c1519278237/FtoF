@@ -75,6 +75,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
     private final StructuredOutputInvoker structuredOutputInvoker;
     private final VoiceInterviewProperties properties;
     private final InterviewSkillService skillService;
+    private final VoiceExpressionMetricsService expressionMetricsService;
     private final ObjectMapper objectMapper;
     private final PromptTemplate systemPromptTemplate;
     private final PromptTemplate userPromptTemplate;
@@ -89,6 +90,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         StructuredOutputInvoker structuredOutputInvoker,
         VoiceInterviewProperties properties,
         InterviewSkillService skillService,
+        VoiceExpressionMetricsService expressionMetricsService,
         ObjectMapper objectMapper,
         ResourceLoader resourceLoader
     ) throws IOException {
@@ -99,6 +101,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         this.structuredOutputInvoker = structuredOutputInvoker;
         this.properties = properties;
         this.skillService = skillService;
+        this.expressionMetricsService = expressionMetricsService;
         this.objectMapper = objectMapper;
         this.systemPromptTemplate = loadTemplate(resourceLoader, SYSTEM_PROMPT_PATH);
         this.userPromptTemplate = loadTemplate(resourceLoader, USER_PROMPT_PATH);
@@ -127,8 +130,8 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         List<VoiceInterviewMessageEntity> contextTurns =
             selectContextTurns(completedTurns, config.getContextTurns());
         String transcript = buildTranscript(contextTurns);
-        String referenceContext =
-            skillService.buildEvaluationReferenceSectionSafe(session.getSkillId());
+        String referenceContext = skillService.buildEvaluationReferenceSectionSafe(session.getSkillId())
+            + "\n\n" + expressionMetricsService.buildPromptContext(session.getExpressionMetricsJson());
         String dimensionCatalog = DIMENSIONS.stream()
             .map(d -> "- %s (%s)".formatted(d.label(), d.key()))
             .collect(Collectors.joining("\n"));
@@ -165,7 +168,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         }
 
         VoiceInterviewLiveEvaluationDTO dto =
-            buildEvaluationDto(sessionId, turnCount, runtimeResults, successful);
+            buildEvaluationDto(session, turnCount, runtimeResults, successful);
         saveEvaluation(sessionId, dto);
         return dto;
     }
@@ -386,15 +389,17 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
     }
 
     private VoiceInterviewLiveEvaluationDTO buildEvaluationDto(
-        Long sessionId,
+        VoiceInterviewSessionEntity session,
         int turnCount,
         List<EvaluatorRuntimeResult> runtimeResults,
         List<EvaluatorRuntimeResult> successful
     ) {
-        int overallScore = weightedAverage(
+        int contentScore = weightedAverage(
             successful.stream().map(result -> result.snapshot().overallScore()).toList(),
             successful.stream().map(result -> result.snapshot().confidence()).toList()
         );
+        int overallScore = expressionMetricsService.weightedOverallScore(
+            contentScore, session.getExpressionMetricsJson());
         double averageConfidence = successful.stream()
             .map(result -> result.snapshot().confidence())
             .filter(Objects::nonNull)
@@ -444,7 +449,7 @@ public class VoiceInterviewLiveEvaluationService implements DisposableBean {
         String summary = buildSummary(profile, dimensions, overallScore);
 
         return new VoiceInterviewLiveEvaluationDTO(
-            sessionId,
+            session.getId(),
             turnCount,
             overallScore,
             confidence,

@@ -1,0 +1,6 @@
+AvatarSample_A.vrm
+
+Source: VRoid Studio sample model, mirrored from madjin/vrm-samples.
+Copyright and usage conditions: follow the VRoid Studio sample model terms.
+Reference: https://vroid.pixiv.help/hc/en-us/articles/4402394424089
+Repository mirror: https://github.com/madjin/vrm-samples

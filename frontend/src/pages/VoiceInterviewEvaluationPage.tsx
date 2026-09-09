@@ -210,6 +210,70 @@ export default function VoiceInterviewEvaluationPage() {
             </p>
           </div>
         </div>
+        {isVideoEvaluation && evaluation.expressionMetrics && (
+          <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5 dark:border-blue-900/50 dark:bg-blue-950/20">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900 dark:text-white">视觉表达辅助分析</h2>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  基于浏览器本地预训练人脸模型的可观察信号，不判断人格、诚实性或情绪状态。
+                </p>
+              </div>
+              <div className="flex items-end gap-5 text-right">
+                <div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">内容分</p>
+                  <p className="text-xl font-bold text-slate-800 dark:text-slate-100">{evaluation.contentScore ?? '-'}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">自然度分</p>
+                  <p className="text-xl font-bold text-blue-600 dark:text-blue-300">{evaluation.expressionScore ?? '-'}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">最终分</p>
+                  <p className="text-xl font-bold text-primary-600 dark:text-primary-300">{evaluation.overallScore}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+              <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/40">
+                <p className="text-slate-500 dark:text-slate-400">人脸跟踪覆盖</p>
+                <p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">
+                  {Math.round(evaluation.expressionMetrics.trackingRatio * 100)}%
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/40">
+                <p className="text-slate-500 dark:text-slate-400">微表情事件</p>
+                <p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">
+                  {evaluation.expressionMetrics.microExpressionCount}
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/40">
+                <p className="text-slate-500 dark:text-slate-400">视线偏移</p>
+                <p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">
+                  {Math.round(evaluation.expressionMetrics.averageGazeAversion * 100)}%
+                </p>
+              </div>
+              <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/40">
+                <p className="text-slate-500 dark:text-slate-400">头部动作</p>
+                <p className="mt-1 font-semibold text-slate-800 dark:text-slate-100">
+                  {Math.round(evaluation.expressionMetrics.averageHeadMovement * 100)}%
+                </p>
+              </div>
+            </div>
+            {evaluation.expressionMetrics.observedSignals.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {evaluation.expressionMetrics.observedSignals.map(signal => (
+                  <span
+                    key={signal}
+                    className="rounded-full bg-white px-3 py-1 text-[11px] text-blue-700 dark:bg-slate-900/60 dark:text-blue-300"
+                  >
+                    {signal}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <InterviewDetailPanel interview={interviewDetail} />
       </div>
     </div>

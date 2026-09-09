@@ -35,6 +35,12 @@ public class VoiceInterviewEvaluationEntity {
     @Column(name = "overall_score")
     private Integer overallScore;
 
+    @Column(name = "content_score")
+    private Integer contentScore;
+
+    @Column(name = "expression_score")
+    private Integer expressionScore;
+
     @Column(name = "overall_feedback", columnDefinition = "TEXT")
     private String overallFeedback;
 

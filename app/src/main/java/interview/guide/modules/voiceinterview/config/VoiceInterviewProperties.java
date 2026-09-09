@@ -26,6 +26,7 @@ public class VoiceInterviewProperties {
     private QwenConfig qwen = new QwenConfig();
     private OpeningConfig opening = new OpeningConfig();
     private LiveEvaluationConfig liveEvaluation = new LiveEvaluationConfig();
+    private ExpressionAnalysisConfig expressionAnalysis = new ExpressionAnalysisConfig();
 
     /**
      * 语音面试单轮面试官回复最大字符数（超出会截断到句子边界）。
@@ -180,6 +181,13 @@ public class VoiceInterviewProperties {
             new EvaluatorConfig("growth_coach", "成长潜力官", "反思能力与成长速度",
                 "重点判断复盘意识、学习敏捷度、可培养性和长期成长空间", null)
         ));
+    }
+
+    @Data
+    public static class ExpressionAnalysisConfig {
+        private boolean enabled = true;
+        /** Maximum contribution of visual presentation to the final score. */
+        private double scoreWeight = 0.10;
     }
 
     @Data

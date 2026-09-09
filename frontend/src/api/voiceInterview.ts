@@ -64,6 +64,30 @@ export interface VoiceEvaluationDetail {
   strengths: string[];
   improvements: string[];
   answers: VoiceAnswerDetail[];
+  contentScore?: number | null;
+  expressionScore?: number | null;
+  expressionMetrics?: ExpressionMetricsSummary | null;
+}
+
+export interface ExpressionMetricsSummary {
+  model: string;
+  sampleCount: number;
+  trackedSampleCount: number;
+  trackingRatio: number;
+  durationSeconds: number;
+  blinkCount: number;
+  blinkRatePerMinute: number;
+  microExpressionCount: number;
+  averageSmile: number;
+  peakSmile: number;
+  averageMouthMovement: number;
+  averageBrowTension: number;
+  averageGazeAversion: number;
+  averageHeadMovement: number;
+  expressionVariation: number;
+  naturalnessScore: number;
+  observedSignals: string[];
+  updatedAt?: string;
 }
 
 export interface LiveEvaluatorScore {
@@ -215,6 +239,19 @@ export const voiceInterviewApi = {
    */
   async endSession(sessionId: number): Promise<void> {
     return request.post<void>(`/api/voice-interview/sessions/${sessionId}/end`);
+  },
+
+  async saveExpressionMetrics(
+    sessionId: number,
+    metrics: ExpressionMetricsSummary
+  ): Promise<ExpressionMetricsSummary> {
+    const { model, updatedAt, ...payload } = metrics;
+    void model;
+    void updatedAt;
+    return request.post<ExpressionMetricsSummary>(
+      `/api/voice-interview/sessions/${sessionId}/expression-metrics`,
+      payload
+    );
   },
 
   /**

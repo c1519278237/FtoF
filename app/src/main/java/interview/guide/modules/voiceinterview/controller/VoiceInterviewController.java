@@ -4,7 +4,10 @@ import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.model.AsyncTaskStatus;
 import interview.guide.common.result.Result;
+import interview.guide.common.annotation.RateLimit;
 import interview.guide.modules.voiceinterview.dto.CreateSessionRequest;
+import interview.guide.modules.voiceinterview.dto.ExpressionMetricsRequest;
+import interview.guide.modules.voiceinterview.dto.ExpressionMetricsSummaryDTO;
 import interview.guide.modules.voiceinterview.dto.SessionMetaDTO;
 import interview.guide.modules.voiceinterview.dto.SessionResponseDTO;
 import interview.guide.modules.voiceinterview.dto.VoiceEvaluationDetailDTO;
@@ -14,6 +17,7 @@ import interview.guide.modules.voiceinterview.dto.VoiceInterviewMessageDTO;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewEvaluationService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewLiveEvaluationService;
+import interview.guide.modules.voiceinterview.service.VoiceExpressionMetricsService;
 import interview.guide.modules.voiceinterview.service.VoiceInterviewService;
 import interview.guide.modules.interview.round.InterviewRoundDTO;
 import interview.guide.modules.interview.round.InterviewRoundService;
@@ -54,6 +58,7 @@ public class VoiceInterviewController {
     private final VoiceInterviewEvaluationService evaluationService;
     private final VoiceInterviewLiveEvaluationService liveEvaluationService;
     private final InterviewRoundService roundService;
+    private final VoiceExpressionMetricsService expressionMetricsService;
 
     /**
      * Create a new voice interview session
@@ -99,6 +104,21 @@ public class VoiceInterviewController {
         log.info("Ending session: {}", sessionId);
         voiceInterviewService.endSession(sessionId.toString());
         return Result.success();
+    }
+
+    /**
+     * Save a privacy-preserving visual expression summary. Raw camera frames stay in the browser.
+     */
+    @PostMapping("/sessions/{sessionId}/expression-metrics")
+    @RateLimit(dimension = RateLimit.Dimension.GLOBAL, count = 120, interval = 1,
+        timeUnit = RateLimit.TimeUnit.MINUTES)
+    @RateLimit(dimension = RateLimit.Dimension.IP, count = 30, interval = 1,
+        timeUnit = RateLimit.TimeUnit.MINUTES)
+    public Result<ExpressionMetricsSummaryDTO> saveExpressionMetrics(
+        @PathVariable Long sessionId,
+        @Valid @RequestBody ExpressionMetricsRequest request
+    ) {
+        return Result.success(expressionMetricsService.save(sessionId, request));
     }
 
     /**

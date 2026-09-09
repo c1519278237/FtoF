@@ -44,6 +44,7 @@ public class VoiceInterviewEvaluationService {
     private final VoiceInterviewSessionRepository sessionRepository;
     private final ObjectMapper objectMapper;
     private final InterviewSkillService skillService;
+    private final VoiceExpressionMetricsService expressionMetricsService;
 
     /**
      * 生成语音面试评估（由异步消费者调用）
@@ -70,6 +71,8 @@ public class VoiceInterviewEvaluationService {
 
             String sessionIdStr = String.valueOf(sessionId);
             String referenceContext = skillService.buildEvaluationReferenceSectionSafe(session.getSkillId());
+            referenceContext += "\n\n" + expressionMetricsService.buildPromptContext(
+                session.getExpressionMetricsJson());
             EvaluationReport report = unifiedEvaluationService.evaluate(
                 chatClient, sessionIdStr, qaRecords, null, referenceContext);
 
@@ -134,7 +137,11 @@ public class VoiceInterviewEvaluationService {
                     .sessionId(sessionId)
                     .build());
 
-            entity.setOverallScore(report.overallScore());
+            entity.setContentScore(report.overallScore());
+            entity.setExpressionScore(expressionMetricsService.expressionScore(
+                session.getExpressionMetricsJson()));
+            entity.setOverallScore(expressionMetricsService.weightedOverallScore(
+                report.overallScore(), session.getExpressionMetricsJson()));
             entity.setOverallFeedback(report.overallFeedback());
             entity.setQuestionEvaluationsJson(objectMapper.writeValueAsString(questionItems));
             entity.setStrengthsJson(objectMapper.writeValueAsString(report.strengths()));
@@ -159,6 +166,8 @@ public class VoiceInterviewEvaluationService {
                 .orElseGet(() -> VoiceInterviewEvaluationEntity.builder().sessionId(sessionId).build());
 
             entity.setOverallScore(0);
+            entity.setContentScore(0);
+            entity.setExpressionScore(null);
             entity.setOverallFeedback("本次语音面试未形成有效对话记录，暂无可评估内容。");
             entity.setQuestionEvaluationsJson("[]");
             entity.setStrengthsJson("[]");
@@ -221,10 +230,16 @@ public class VoiceInterviewEvaluationService {
                 .sessionId(entity.getSessionId())
                 .totalQuestions(answers.size())
                 .overallScore(entity.getOverallScore())
+                .contentScore(entity.getContentScore() != null
+                    ? entity.getContentScore() : entity.getOverallScore())
+                .expressionScore(entity.getExpressionScore())
                 .overallFeedback(entity.getOverallFeedback())
                 .strengths(strengths)
                 .improvements(improvements)
                 .answers(answers)
+                .expressionMetrics(sessionRepository.findById(entity.getSessionId())
+                    .map(session -> expressionMetricsService.read(session.getExpressionMetricsJson()))
+                    .orElse(null))
                 .build();
 
         } catch (Exception e) {

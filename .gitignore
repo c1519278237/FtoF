@@ -27,5 +27,8 @@ GEMINI.md
 
 # Local Python environment and bytecode for research scripts
 .venv/
+.tmp-face-test/
+.tmp_model_review/
+.tmp_ppt_inspect/
 __pycache__/
 *.pyc

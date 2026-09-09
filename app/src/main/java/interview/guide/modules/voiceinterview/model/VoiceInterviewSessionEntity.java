@@ -114,6 +114,15 @@ public class VoiceInterviewSessionEntity {
     @Column(name = "evaluate_error", length = 500)
     private String evaluateError;
 
+    /**
+     * Browser-side facial expression summary. Raw camera frames are never stored.
+     */
+    @Column(name = "expression_metrics_json", columnDefinition = "TEXT")
+    private String expressionMetricsJson;
+
+    @Column(name = "expression_metrics_updated_at")
+    private LocalDateTime expressionMetricsUpdatedAt;
+
     @PreUpdate
     protected void onUpdate() {
         this.updatedAt = LocalDateTime.now();

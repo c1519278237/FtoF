@@ -9,7 +9,51 @@ interface DigitalInterviewerVRMProps {
   audioAnalyserRef: RefObject<AnalyserNode | null>;
 }
 
-const MODEL_URL = '/models/VRM1_Constraint_Twist_Sample.vrm';
+const MODEL_URL = '/models/AvatarSample_A.vrm';
+const BLUE_HAIR = { red: 0.12, green: 0.39, blue: 0.95 };
+
+function setHairMaterialBlue(material: THREE.Material) {
+  const candidate = material as THREE.Material & {
+    color?: THREE.Color;
+    map?: THREE.Texture | null;
+    needsUpdate?: boolean;
+  };
+
+  if (!material.name.toLowerCase().includes('hair')) return;
+
+  // The sample's hair is brown in its original texture. Do not multiply that
+  // texture by blue: it produces muddy black hair. A clean toon-blue surface
+  // keeps the model readable and matches the blue-first identity of 蓝团.
+  candidate.map = null;
+  if (candidate.color) {
+    const materialName = material.name.toLowerCase();
+    const shade = materialName.includes('_01')
+      ? BLUE_HAIR
+      : materialName.includes('_02')
+        ? { red: 0.18, green: 0.52, blue: 1.0 }
+        : materialName.includes('_03')
+          ? { red: 0.08, green: 0.24, blue: 0.72 }
+          : { red: 0.25, green: 0.64, blue: 1.0 };
+    candidate.color.setRGB(shade.red, shade.green, shade.blue);
+  }
+  candidate.needsUpdate = true;
+}
+
+function recolorHair(scene: THREE.Object3D) {
+  scene.traverse(object => {
+    const renderable = object as THREE.Mesh;
+    const materials = Array.isArray(renderable.material)
+      ? renderable.material
+      : renderable.material
+        ? [renderable.material]
+        : [];
+    materials.forEach(setHairMaterialBlue);
+  });
+}
+
+function disposeVrm(vrm: VRM) {
+  VRMUtils.deepDispose(vrm.scene);
+}
 
 export default function DigitalInterviewerVRM({
   isSpeaking,
@@ -32,37 +76,36 @@ export default function DigitalInterviewerVRM({
     let currentVrm: VRM | null = null;
     let animationFrame = 0;
     let lastFrameTime = performance.now();
-    let nextBlinkAt = performance.now() + 2800;
+    let nextBlinkAt = performance.now() + 2600;
     let blinkStartedAt = 0;
     const analyserData = new Uint8Array(128);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#071a3a');
-
-    const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-    camera.position.set(0, 1.2, 3.2);
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
+    const lookAtTarget = new THREE.Object3D();
+    scene.add(lookAtTarget);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0xffffff, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = true;
+    renderer.domElement.style.position = 'absolute';
+    renderer.domElement.style.inset = '0';
+    renderer.domElement.style.zIndex = '10';
     mount.appendChild(renderer.domElement);
 
-    const ambientLight = new THREE.HemisphereLight(0xb9d9ff, 0x172554, 2.1);
-    scene.add(ambientLight);
-
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
-    keyLight.position.set(1.5, 2.4, 3);
+    const hemisphere = new THREE.HemisphereLight(0xffffff, 0xdbeafe, 1.45);
+    scene.add(hemisphere);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.65);
+    keyLight.position.set(1.8, 3.2, 4);
     keyLight.castShadow = true;
     scene.add(keyLight);
-
-    const rimLight = new THREE.PointLight(0x38bdf8, 8, 8);
-    rimLight.position.set(-2, 1.5, -1);
-    scene.add(rimLight);
-
-    const lookAtTarget = new THREE.Object3D();
-    lookAtTarget.position.set(0, 1.25, 0);
-    scene.add(lookAtTarget);
+    const fillLight = new THREE.DirectionalLight(0xc8e7ff, 0.75);
+    fillLight.position.set(-2, 1.4, 2.5);
+    scene.add(fillLight);
 
     const loader = new GLTFLoader();
     loader.register(parser => new VRMLoaderPlugin(parser));
@@ -74,7 +117,6 @@ export default function DigitalInterviewerVRM({
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
     };
-
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(mount);
     resize();
@@ -94,15 +136,25 @@ export default function DigitalInterviewerVRM({
         vrm.scene.traverse(object => {
           object.frustumCulled = false;
         });
+        recolorHair(vrm.scene);
+
+        // VRoid sample assets face -Z while the viewer camera is placed on +Z.
+        // Rotate the complete avatar once so the interviewer faces the candidate.
+        vrm.scene.rotation.y = Math.PI;
 
         const bounds = new THREE.Box3().setFromObject(vrm.scene);
         const size = new THREE.Vector3();
         bounds.getSize(size);
         const height = Math.max(size.y, 1.4);
         vrm.scene.position.y -= bounds.min.y;
-        camera.position.set(0, height * 0.52, height * 2.45);
-        camera.lookAt(0, height * 0.5, 0);
-        lookAtTarget.position.set(0, height * 0.62, 0);
+
+        // Frame the head and upper body like a seated video-call participant.
+        // The desk overlay hides the lower body, so the avatar reads as seated
+        // behind the desk instead of appearing as a full-body T-pose.
+        const portraitCenter = height * 0.74;
+        camera.position.set(0, portraitCenter, height * 1.18);
+        camera.lookAt(0, height * 0.72, 0);
+        lookAtTarget.position.copy(camera.position);
 
         scene.add(vrm.scene);
         currentVrm = vrm;
@@ -117,7 +169,6 @@ export default function DigitalInterviewerVRM({
 
     const animate = (now: number) => {
       if (disposed) return;
-
       animationFrame = requestAnimationFrame(animate);
       const delta = Math.min((now - lastFrameTime) / 1000, 0.05);
       lastFrameTime = now;
@@ -144,7 +195,7 @@ export default function DigitalInterviewerVRM({
           }
 
           expressionManager.setValue('aa', mouthLevel);
-          expressionManager.setValue('happy', speaking ? 0.12 : 0.28);
+          expressionManager.setValue('happy', speaking ? 0.18 : 0.30);
 
           if (now >= nextBlinkAt && blinkStartedAt === 0) {
             blinkStartedAt = now;
@@ -158,7 +209,7 @@ export default function DigitalInterviewerVRM({
               blinkLevel = 1 - (blinkElapsed - 110) / 110;
             } else {
               blinkStartedAt = 0;
-              nextBlinkAt = now + 2600 + Math.random() * 3600;
+              nextBlinkAt = now + 2600 + Math.random() * 3400;
             }
           }
           expressionManager.setValue('blink', blinkLevel);
@@ -166,23 +217,31 @@ export default function DigitalInterviewerVRM({
 
         const head = humanoid?.getNormalizedBoneNode('head');
         if (head) {
-          head.rotation.x = (thinking ? 0.035 : 0) + (speaking ? Math.sin(now / 180) * 0.012 : 0);
-          head.rotation.y = Math.sin(now / 2100) * 0.035;
+          head.rotation.x = thinking ? 0.025 : 0;
+          head.rotation.y = 0;
         }
 
+        // Lower both arms from the source T-pose so they rest near the desk.
+        // The sample's left/right bones point in opposite X directions, so the
+        // Z rotations intentionally have opposite signs.
         const leftUpperArm = humanoid?.getNormalizedBoneNode('leftUpperArm');
-        if (leftUpperArm) {
-          leftUpperArm.rotation.z = Math.sin(now / 1750) * 0.025;
-        }
-
         const rightUpperArm = humanoid?.getNormalizedBoneNode('rightUpperArm');
-        if (rightUpperArm) {
-          rightUpperArm.rotation.z = (speaking ? Math.sin(now / 520) * 0.07 : 0) + Math.sin(now / 1900) * 0.02;
-        }
+        const leftLowerArm = humanoid?.getNormalizedBoneNode('leftLowerArm');
+        const rightLowerArm = humanoid?.getNormalizedBoneNode('rightLowerArm');
+        const gesture = speaking ? Math.sin(now / 720) * 0.055 : Math.sin(now / 1900) * 0.018;
 
-        if (currentVrm.lookAt) {
-          currentVrm.lookAt.target = lookAtTarget;
+        if (leftUpperArm) {
+          leftUpperArm.rotation.z = THREE.MathUtils.degToRad(66) - gesture;
+          leftUpperArm.rotation.x = THREE.MathUtils.degToRad(-4);
         }
+        if (rightUpperArm) {
+          rightUpperArm.rotation.z = THREE.MathUtils.degToRad(-66) + gesture;
+          rightUpperArm.rotation.x = THREE.MathUtils.degToRad(-4);
+        }
+        if (leftLowerArm) leftLowerArm.rotation.z = 0;
+        if (rightLowerArm) rightLowerArm.rotation.z = 0;
+
+        if (currentVrm.lookAt) currentVrm.lookAt.target = lookAtTarget;
         currentVrm.update(delta);
       }
 
@@ -197,7 +256,7 @@ export default function DigitalInterviewerVRM({
       resizeObserver.disconnect();
       if (currentVrm) {
         scene.remove(currentVrm.scene);
-        VRMUtils.deepDispose(currentVrm.scene);
+        disposeVrm(currentVrm);
       }
       renderer.dispose();
       renderer.domElement.remove();
@@ -209,15 +268,22 @@ export default function DigitalInterviewerVRM({
   return (
     <div
       ref={mountRef}
-      className="relative aspect-video overflow-hidden rounded-2xl border border-blue-200 bg-[#071a3a] shadow-inner dark:border-blue-900"
+      className="relative isolate aspect-video overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-inner dark:border-slate-700 dark:bg-slate-900"
+      style={{
+        background: 'radial-gradient(circle at 50% 30%, #eff6ff 0%, #ffffff 52%, #ffffff 100%)',
+      }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(56,189,248,0.22),transparent_58%)]" />
-      <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-slate-950/60 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-        <span className={`h-2 w-2 rounded-full ${isSpeaking ? 'animate-pulse bg-emerald-400' : 'bg-blue-300'}`} />
-        AI 数字面试官 · VRM
+      <div className="pointer-events-none absolute inset-x-10 bottom-5 z-0 h-px bg-blue-100/80" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[24%] bg-gradient-to-b from-white/70 via-white/95 to-blue-50/95 shadow-[0_-8px_20px_rgba(148,163,184,0.12)] dark:from-slate-900/80 dark:via-slate-900/95 dark:to-slate-800/95">
+        <div className="absolute inset-x-0 top-0 h-2 border-y border-blue-200/90 bg-white/95 dark:border-slate-600 dark:bg-slate-800/95" />
+        <div className="absolute inset-x-8 top-2 h-px bg-blue-100 dark:bg-slate-700" />
       </div>
-      <div className="absolute bottom-4 left-4 rounded-xl bg-slate-950/65 px-3 py-2 text-xs text-white backdrop-blur-sm">
-        <div className="font-medium">{loadState === 'error' ? 'VRM 模型加载失败' : status}</div>
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+        <span className={`h-2 w-2 rounded-full ${isSpeaking ? 'animate-pulse bg-emerald-400' : 'bg-blue-300'}`} />
+        AI 蓝团
+      </div>
+      <div className="absolute bottom-4 left-4 z-20 rounded-xl bg-slate-950/75 px-3 py-2 text-xs text-white backdrop-blur-sm">
+        <div className="font-medium">{loadState === 'error' ? '数字人加载失败' : status}</div>
         {isSpeaking && loadState === 'ready' && (
           <div className="mt-1 flex h-3 items-end gap-0.5" aria-label="数字人正在说话">
             {[1, 2, 3, 2, 1].map((height, index) => (
